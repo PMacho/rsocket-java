@@ -19,11 +19,16 @@ package io.rsocket.client;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.client.filter.RSocketSupplier;
+
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+
+import io.rsocket.util.DefaultPayload;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -92,6 +97,40 @@ public class LoadBalancedRSocketMonoTest {
 
     Assert.assertEquals(1.0, balancer.availability(), 0);
   }
+
+    @Test
+    public void refreshSocketsTest() {
+        LoadBalancedRSocketMono refreshingLoadBalancedRSocketMono = Flux
+                .interval(Duration.ZERO, Duration.ofMillis(10))
+                .doOnEach(System.out::println)
+                .flatMap(i -> getSuppliers().collectList())
+                .as(LoadBalancedRSocketMono::create);
+
+        Flux
+                .range(0, 1000)
+                .flatMap(i -> refreshingLoadBalancedRSocketMono)
+                .delayUntil(rSocket -> Flux
+                        .interval(Duration.ZERO, Duration.ofMillis(1))
+                        .filter(i -> rSocket.availability() > 0.0)
+                        .next()
+                )
+                .flatMap(rSocket -> rSocket.requestResponse(
+                        DefaultPayload.create("Hello from refreshing load balanced RSocket"))
+                )
+                .doOnNext(next -> System.out.println(Objects.requireNonNull(next.getDataUtf8())))
+                .blockLast();
+    }
+
+    private Flux<RSocketSupplier> getSuppliers() {
+        return Flux
+                .fromIterable(Arrays.asList(1, 2, 3))
+                .map(serviceId -> new RSocketSupplier(() -> Mono
+                        .delay(Duration.ofSeconds(1))
+                        .as(longMono -> Mono.just(new TestingRSocket(a ->
+                                DefaultPayload.create(a.getDataUtf8() + " number " + serviceId)
+                        )))
+                ));
+    }
 
   private void testBalancer(List<RSocketSupplier> factories) throws InterruptedException {
     Publisher<List<RSocketSupplier>> src =
