@@ -1,23 +1,43 @@
-package io.rsocket.client;
+package io.rsocket.client.new_classes;
 
 import io.rsocket.AbstractRSocket;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
+import io.rsocket.client.filter.RSocketSupplier;
+import io.rsocket.stat.FrugalQuantile;
+import io.rsocket.util.RSocketProxy;
 import org.reactivestreams.Publisher;
 import reactor.core.Disposable;
+import reactor.core.publisher.ConnectableFlux;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class LoadBalancedRSocket extends AbstractRSocket {
 
-    private final ConcurrentSkipListSet<RSocket> activeSockets = new ConcurrentSkipListSet<>(
-            Comparator.comparingDouble()
-    )
+    private final Statistics statistics;
+
+    private ConnectableFlux<RSocket> weightedRSocketFlux;
+
+    public LoadBalancedRSocket(
+            Publisher<? extends Collection<RSocketSupplier>> rSocketSuppliers
+    ) {
+        this.statistics = new Statistics();
+    }
+
+    private final ConcurrentSkipListSet<WeightedRSocket> activeSockets = new ConcurrentSkipListSet<>(
+            Comparator.comparingDouble(WeightedRSocket::algorithmicWeight)
+    );
 
     private Mono<RSocket> select() {
+
+        RSocketProxy
 
     }
 
@@ -42,7 +62,7 @@ public class LoadBalancedRSocket extends AbstractRSocket {
     }
 
     @Override
-    // fixme: Am I this really correct?
+    // fixme: Am I really correct?
     public Mono<Void> metadataPush(Payload payload) {
         return Mono
                 .when(
