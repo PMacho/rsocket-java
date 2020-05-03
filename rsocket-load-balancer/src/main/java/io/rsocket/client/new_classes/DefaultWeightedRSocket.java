@@ -41,25 +41,28 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     //    private final Quantile lowerQuantile;
 //    private final Quantile higherQuantile;
     private final Consumer<Double> updateQuantiles;
-    private final Function<Function<WeightedRSocketPoolStatistics.Quantiles, S>> doWithQuantiles;
+//    private final Function<Function<WeightedRSocketPoolStatistics.Quantiles, S>> doWithQuantiles;
     //    private final RSocket rSocket;
     private final long inactivityFactor;
     //    private final MonoProcessor<RSocket> rSocketMono;
     // fixme: make Atomic
-    private volatile int pending; // instantaneous rate
-    private long stamp; // last timestamp we sent a request
-    private long stamp0; // last timestamp we sent a request or receive a response
-    private long duration; // instantaneous cumulative duration
+//    private volatile int pending; // instantaneous rate
+//    private long stamp; // last timestamp we sent a request
+//    private long stamp0; // last timestamp we sent a request or receive a response
+//    private long duration; // instantaneous cumulative duration
+//
+//    private Median median;
+//    private Ewma interArrivalTime;
 
-    private Median median;
-    private Ewma interArrivalTime;
-
-    private AtomicLong pendingStreams; // number of active streams
+//    private AtomicLong pendingStreams; // number of active streams
 
     private volatile double availability = 0.0;
     private final double exponentialFactor;
 
-    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
+    private final WeightingStatistics weightingStatistics = new WeightingStatistics();
+
+    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations =
+            new ConcurrentOperations<>(weightingStatistics);
     private final ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations;
 
     DefaultWeightedRSocket(
@@ -79,7 +82,6 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         availability = 1.0;
         exponentialFactor = DEFAULT_EXPONENTIAL_FACTOR;
-        this.weightingStatisticsOperations = new ConcurrentOperations<>(new WeightingStatistics());
 
         logger.debug("Creating WeightedRSocket {} for RSocket {}", DefaultWeightedRSocket.this, rSocket);
     }
@@ -408,7 +410,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onSubscribe(Subscription s) {
-            socket.pendingStreams.incrementAndGet();
+            weightingStatistics.addStream();
             child.onSubscribe(s);
         }
 
@@ -419,7 +421,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onError(Throwable t) {
-            socket.pendingStreams.decrementAndGet();
+            weightingStatistics.removeStream();
             child.onError(t);
             if (t instanceof TransportException || t instanceof ClosedChannelException) {
                 logger.debug("Disposing {} from activeSockets because of error {}", socket, t);
@@ -429,7 +431,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onComplete() {
-            socket.pendingStreams.decrementAndGet();
+            weightingStatistics.removeStream();
             child.onComplete();
         }
     }
