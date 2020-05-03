@@ -4,7 +4,6 @@ import io.rsocket.AbstractRSocket;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.client.filter.RSocketSupplier;
-import io.rsocket.stat.FrugalQuantile;
 import io.rsocket.util.RSocketProxy;
 import org.reactivestreams.Publisher;
 import reactor.core.Disposable;
@@ -15,20 +14,17 @@ import reactor.core.publisher.Mono;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 public class LoadBalancedRSocket extends AbstractRSocket {
 
-    private final Statistics statistics;
+    private final ConcurrentOperations<WeightedRSocketPoolStatistics> loadBalancingStatisticsOperations;
 
     private ConnectableFlux<RSocket> weightedRSocketFlux;
 
     public LoadBalancedRSocket(
             Publisher<? extends Collection<RSocketSupplier>> rSocketSuppliers
     ) {
-        this.statistics = new Statistics();
+        this.loadBalancingStatisticsOperations = new ConcurrentOperations<>(new WeightedRSocketPoolStatistics());
     }
 
     private final ConcurrentSkipListSet<WeightedRSocket> activeSockets = new ConcurrentSkipListSet<>(
