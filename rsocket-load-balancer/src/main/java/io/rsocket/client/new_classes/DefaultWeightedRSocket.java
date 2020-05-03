@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSocket {
@@ -40,7 +41,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     //    private final Quantile lowerQuantile;
 //    private final Quantile higherQuantile;
     private final Consumer<Double> updateQuantiles;
-    private final Supplier<Statistics.Quantiles> quantilesSupplier;
+    private final Function<Function<WeightedRSocketPoolStatistics.Quantiles, S>> doWithQuantiles;
     //    private final RSocket rSocket;
     private final long inactivityFactor;
     //    private final MonoProcessor<RSocket> rSocketMono;
@@ -58,39 +59,38 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     private volatile double availability = 0.0;
     private final double exponentialFactor;
 
+    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
+    private final ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations;
+
     DefaultWeightedRSocket(
             Consumer<Double> updateQuantiles,
-            Supplier<Statistics.Quantiles> quantilesSupplier,
+            ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
             RSocket rSocket,
             int inactivityFactor
     ) {
         super(rSocket);
-        this.updateQuantiles = updateQuantiles;
-        this.quantilesSupplier = quantilesSupplier;
+        this.updateQuantiles = rtt -> weightedRSocketPoolStatisticsOperations.write(
+                weightedRSocketPoolStatistics -> weightedRSocketPoolStatistics.updateQuantiles(rtt)
+        );
+        this.weightedRSocketPoolStatisticsOperations = weightedRSocketPoolStatisticsOperations;
+//        this.doWithQuantiles = doWithQuantiles;
 //        this.rSocket = rSocket;
         this.inactivityFactor = inactivityFactor;
 
-        long now = Clock.now();
-        this.stamp = now;
-        this.stamp0 = now;
-        this.duration = 0L;
-        this.pending = 0;
-        this.median = new Median();
-        this.interArrivalTime = new Ewma(1, TimeUnit.MINUTES, DEFAULT_INITIAL_INTER_ARRIVAL_TIME);
-        this.pendingStreams = new AtomicLong();
-
         availability = 1.0;
         exponentialFactor = DEFAULT_EXPONENTIAL_FACTOR;
+        this.weightingStatisticsOperations = new ConcurrentOperations<>(new WeightingStatistics());
 
         logger.debug("Creating WeightedRSocket {} for RSocket {}", DefaultWeightedRSocket.this, rSocket);
     }
 
     DefaultWeightedRSocket(
             Consumer<Double> updateQuantiles,
-            Supplier<Statistics.Quantiles> quantilesSupplier,
+            ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
+//            Consumer<Consumer<WeightedRSocketPoolStatistics.Quantiles>> doWithQuantiles,
             RSocket rSocket
     ) {
-        this(updateQuantiles, quantilesSupplier, rSocket, DEFAULT_INTER_ARRIVAL_FACTOR);
+        this(updateQuantiles, weightedRSocketPoolStatisticsOperations, rSocket, DEFAULT_INTER_ARRIVAL_FACTOR);
     }
 
     WeightedSocket(
@@ -198,16 +198,23 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
             return 0.0;
         }
 
-        int pendings = getPending();
-        double latency = getPredictedLatency();
+        return weightedRSocketPoolStatisticsOperations.read(
+                weightedRSocketPoolStatistics -> weightingStatisticsOperations.read(
+                        weightingStatistics -> weight(
+                                weightedRSocketPoolStatistics.getQuantiles(),
+                                weightingStatistics)
+                )
+        );
+    }
 
-        final Statistics.Quantiles quantiles = quantilesSupplier.get();
-
-        double low = quantiles.getLowerQuantile();
+    private double weight(WeightedRSocketPoolStatistics.Quantiles quantiles, WeightingStatistics weightingStatistics) {
+        final double low = quantiles.getLowerQuantile();
         // ensure higherQuantile > lowerQuantile + .1%
-        double high = Math.max(quantiles.getHigherQuantile(), low * 1.001);
+        final double high = Math.max(quantiles.getHigherQuantile(), low * 1.001);
+        final double bandWidth = Math.max(high - low, 1);
 
-        double bandWidth = Math.max(high - low, 1);
+        final int pending = weightingStatistics.getPending();
+        double latency = weightingStatistics.getPredictedLatency();
 
         if (latency < low) {
             double alpha = (low - latency) / bandWidth;
@@ -219,8 +226,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
             latency *= penaltyFactor;
         }
 
-        return source.availability() * 1.0 / (1.0 + latency * (pendings + 1));
-
+        return source.availability() * 1.0 / (1.0 + latency * (pending + 1));
     }
 
     private <U> LatencySubscriber<U> latencySubscriber(Subscriber<U> child, WeightedRSocket socket) {
@@ -229,7 +235,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
                 socket,
                 rtt -> {
                     // fixme: make atomic
-                    median.insert(rtt);
+                    weightingStatisticsOperations.write(ws -> ws.updateMedian(rtt));
                     updateQuantiles.accept(rtt);
                 }
         );
@@ -246,7 +252,6 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
     @Override
     public Flux<Payload> requestStream(Payload payload) {
-
         return Flux.from(subscriber -> source
                 .requestStream(payload)
                 .subscribe(new CountingSubscriber<>(subscriber, this))
@@ -277,74 +282,20 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
         );
     }
 
-    synchronized double getPredictedLatency() {
-        long now = Clock.now();
-        long elapsed = Math.max(now - stamp, 1L);
-
-        double weight;
-        double prediction = median.estimation();
-
-        if (prediction == 0.0) {
-            if (pending == 0) {
-                weight = 0.0; // first request
-            } else {
-                // subsequent requests while we don't have any history
-                weight = STARTUP_PENALTY + pending;
-            }
-        } else if (pending == 0 && elapsed > inactivityFactor * interArrivalTime.value()) {
-            // if we did't see any data for a while, we decay the prediction by inserting
-            // artificial 0.0 into the median
-            median.insert(0.0);
-            weight = median.estimation();
-        } else {
-            double predicted = prediction * pending;
-            double instant = instantaneous(now);
-
-            if (predicted < instant) { // NB: (0.0 < 0.0) == false
-                weight = instant / pending; // NB: pending never equal 0 here
-            } else {
-                // we are under the predictions
-                weight = prediction;
-            }
-        }
-
-        return weight;
-    }
-
-    int getPending() {
-        return pending;
-    }
-
-    // fixme: statistics?
-    private synchronized long instantaneous(long now) {
-        return duration + (now - stamp0) * pending;
-    }
-
-    // fixme: statistics?
-    private synchronized long incr() {
-        long now = Clock.now();
-        interArrivalTime.insert(now - stamp);
-        duration += Math.max(0, now - stamp0) * pending;
-        pending += 1;
-        stamp = now;
-        stamp0 = now;
+    private long incr() {
+        long now = now();
+        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.incr(now));
         return now;
     }
 
-    // fixme: statistics?
-    private synchronized long decr(long timestamp) {
-        long now = Clock.now();
-        duration += Math.max(0, now - stamp0) * pending - (now - timestamp);
-        pending -= 1;
-        stamp0 = now;
+    private long decr(long start) {
+        long now = now();
+        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.decr(start, now));
         return now;
     }
 
-    private synchronized void observe(double rtt) {
-        median.insert(rtt);
-        updateQuantiles.accept(rtt);
-//        lowerQuantile.insert(rtt);
-//        higherQuantile.insert(rtt);
+    private long now() {
+        return Clock.now();
     }
 
     @Override
@@ -358,9 +309,9 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
                 + "median="
                 + median.estimation()
                 + " quantile-low="
-                + quantilesSupplier.get().getLowerQuantile()
+                + doWithQuantiles.get().getLowerQuantile()
                 + " quantile-high="
-                + quantilesSupplier.get().getHigherQuantile()
+                + doWithQuantiles.get().getHigherQuantile()
                 + " inter-arrival="
                 + interArrivalTime.value()
                 + " duration/pending="
@@ -371,36 +322,6 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
                 + availability()
                 + ")->";
     }
-
-//    @Override
-//    public double medianLatency() {
-//        return median.estimation();
-//    }
-//
-//    @Override
-//    public double lowerQuantileLatency() {
-//        return lowerQuantile.estimation();
-//    }
-//
-//    @Override
-//    public double higherQuantileLatency() {
-//        return higherQuantile.estimation();
-//    }
-//
-//    @Override
-//    public double interArrivalTime() {
-//        return interArrivalTime.value();
-//    }
-//
-//    @Override
-//    public int pending() {
-//        return pending;
-//    }
-//
-//    @Override
-//    public long lastTimeUsedMillis() {
-//        return stamp0;
-//    }
 
     /**
      * Subscriber wrapper used for request/response interaction model, measure and collect latency
