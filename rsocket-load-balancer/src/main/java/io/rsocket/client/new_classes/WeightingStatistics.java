@@ -5,7 +5,8 @@ import io.rsocket.stat.Median;
 import io.rsocket.util.Clock;
 
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class WeightingStatistics {
 
@@ -23,6 +24,9 @@ public class WeightingStatistics {
     private final Median median;
     private final Ewma interArrivalTime;
 
+    // was called pending streams before, is anyways not used at present
+    private final AtomicLong openStreams;
+
     WeightingStatistics(
     ) {
         final long now = Clock.now();
@@ -33,6 +37,7 @@ public class WeightingStatistics {
         this.median = new Median();
         this.inactivityFactor = DEFAULT_INTER_ARRIVAL_FACTOR;
         this.interArrivalTime = new Ewma(1, TimeUnit.MINUTES, DEFAULT_INITIAL_INTER_ARRIVAL_TIME);
+        this.openStreams = new AtomicLong(0L);
     }
 
     double getPredictedLatency() {
@@ -95,6 +100,14 @@ public class WeightingStatistics {
 
     void updateMedian(double rtt) {
         median.insert(rtt);
+    }
+
+    void addStream(){
+        openStreams.incrementAndGet();
+    }
+
+    void removeStream(){
+        openStreams.decrementAndGet();
     }
 
     private long now() {
