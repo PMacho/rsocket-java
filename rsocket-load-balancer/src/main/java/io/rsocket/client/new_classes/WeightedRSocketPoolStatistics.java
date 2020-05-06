@@ -9,17 +9,8 @@ public class WeightedRSocketPoolStatistics {
 
     private final Quantiles quantiles;
 
-//    final Consumer<Double> quantilesUpdater;
-//    final Supplier<LoadBalancingStatistics.Quantiles> quantilesSupplier;
-
-//    private ConcurrentOperations<LoadBalancingStatistics> operations;
-
     WeightedRSocketPoolStatistics() {
         this.quantiles = new Quantiles(DEFAULT_LOWER_QUANTILE, DEFAULT_HIGHER_QUANTILE);
-
-//        quantilesUpdater = this::updateQuantiles;
-//        quantilesSupplier = this::getQuantiles;
-//        this.operations = new ConcurrentOperations<>(this);
     }
 
     public void updateQuantiles(double rtt) {
