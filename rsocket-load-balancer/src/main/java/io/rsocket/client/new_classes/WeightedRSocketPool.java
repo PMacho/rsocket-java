@@ -34,11 +34,10 @@ public class WeightedRSocketPool {
             Comparator.comparingDouble(WeightedRSocket::algorithmicWeight)
     );
 
-    private WeightedRSocket weightedRSocket(RSocketSupplier rSocketSupplier) {
-        return new DefaultWeightedRSocket(
-                this::updateQuantiles,
-                this::withQuantiles,
-                );
+    private Mono<WeightedRSocket> weightedRSocket(RSocketSupplier rSocketSupplier) {
+        return rSocketSupplier
+                .get()
+                .map(rSocket -> new DefaultWeightedRSocket(loadBalancingStatisticsOperations, rSocket));
     }
 
     private void updateQuantiles(double rtt) {
@@ -47,7 +46,7 @@ public class WeightedRSocketPool {
         );
     }
 
-    private Supplier<WeightedRSocketPoolStatistics.Quantiles> lala(){
+    private Supplier<WeightedRSocketPoolStatistics.Quantiles> lala() {
         return () -> loadBalancingStatisticsOperations.read(WeightedRSocketPoolStatistics::getQuantiles);
     }
 
