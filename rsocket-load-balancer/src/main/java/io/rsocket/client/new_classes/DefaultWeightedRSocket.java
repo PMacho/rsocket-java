@@ -21,64 +21,47 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoProcessor;
 
 import java.nio.channels.ClosedChannelException;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSocket {
 
     Logger logger = LoggerFactory.getLogger(DefaultWeightedRSocket.class);
 
-    private static final double STARTUP_PENALTY = Long.MAX_VALUE >> 12;
     private static final long DEFAULT_INITIAL_INTER_ARRIVAL_TIME =
             Clock.unit().convert(1L, TimeUnit.SECONDS);
-    private static final int DEFAULT_INTER_ARRIVAL_FACTOR = 500;
     private static final double DEFAULT_EXPONENTIAL_FACTOR = 4.0;
-
-    //    private final Quantile lowerQuantile;
-//    private final Quantile higherQuantile;
-    private final Consumer<Double> updateQuantiles;
-//    private final Function<Function<WeightedRSocketPoolStatistics.Quantiles, S>> doWithQuantiles;
-    //    private final RSocket rSocket;
-    private final long inactivityFactor;
-    //    private final MonoProcessor<RSocket> rSocketMono;
-    // fixme: make Atomic
-//    private volatile int pending; // instantaneous rate
-//    private long stamp; // last timestamp we sent a request
-//    private long stamp0; // last timestamp we sent a request or receive a response
-//    private long duration; // instantaneous cumulative duration
-//
-//    private Median median;
-//    private Ewma interArrivalTime;
-
-//    private AtomicLong pendingStreams; // number of active streams
 
     private volatile double availability = 0.0;
     private final double exponentialFactor;
 
-    private final WeightingStatistics weightingStatistics = new WeightingStatistics();
+    private final Consumer<Double> updateQuantiles;
+    private final WeightingStatistics weightingStatistics;
 
-    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations =
-            new ConcurrentOperations<>(weightingStatistics);
+    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
     private final ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations;
 
     DefaultWeightedRSocket(
-            Consumer<Double> updateQuantiles,
             ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
             RSocket rSocket,
-            int inactivityFactor
+            Integer inactivityFactor
     ) {
         super(rSocket);
+
+        this.weightingStatistics = Optional
+                .ofNullable(inactivityFactor)
+                .map(WeightingStatistics::new)
+                .orElseGet(WeightingStatistics::new);
+        this.weightingStatisticsOperations = new ConcurrentOperations<>(weightingStatistics);
+
         this.updateQuantiles = rtt -> weightedRSocketPoolStatisticsOperations.write(
                 weightedRSocketPoolStatistics -> weightedRSocketPoolStatistics.updateQuantiles(rtt)
         );
         this.weightedRSocketPoolStatisticsOperations = weightedRSocketPoolStatisticsOperations;
-//        this.doWithQuantiles = doWithQuantiles;
-//        this.rSocket = rSocket;
-        this.inactivityFactor = inactivityFactor;
 
         availability = 1.0;
         exponentialFactor = DEFAULT_EXPONENTIAL_FACTOR;
@@ -87,12 +70,10 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     }
 
     DefaultWeightedRSocket(
-            Consumer<Double> updateQuantiles,
             ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
-//            Consumer<Consumer<WeightedRSocketPoolStatistics.Quantiles>> doWithQuantiles,
             RSocket rSocket
     ) {
-        this(updateQuantiles, weightedRSocketPoolStatisticsOperations, rSocket, DEFAULT_INTER_ARRIVAL_FACTOR);
+        this(weightedRSocketPoolStatisticsOperations, rSocket, null);
     }
 
     WeightedSocket(
@@ -202,14 +183,18 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         return weightedRSocketPoolStatisticsOperations.read(
                 weightedRSocketPoolStatistics -> weightingStatisticsOperations.read(
-                        weightingStatistics -> weight(
+                        weightingStatistics -> algorithmicWeight(
                                 weightedRSocketPoolStatistics.getQuantiles(),
-                                weightingStatistics)
+                                weightingStatistics
+                        )
                 )
         );
     }
 
-    private double weight(WeightedRSocketPoolStatistics.Quantiles quantiles, WeightingStatistics weightingStatistics) {
+    private double algorithmicWeight(
+            WeightedRSocketPoolStatistics.Quantiles quantiles,
+            WeightingStatistics weightingStatistics
+    ) {
         final double low = quantiles.getLowerQuantile();
         // ensure higherQuantile > lowerQuantile + .1%
         final double high = Math.max(quantiles.getHigherQuantile(), low * 1.001);
@@ -308,18 +293,18 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     @Override
     public String toString() {
         return "WeightedSocket("
-                + "median="
-                + median.estimation()
-                + " quantile-low="
-                + doWithQuantiles.get().getLowerQuantile()
-                + " quantile-high="
-                + doWithQuantiles.get().getHigherQuantile()
-                + " inter-arrival="
-                + interArrivalTime.value()
-                + " duration/pending="
-                + (pending == 0 ? 0 : (double) duration / pending)
-                + " pending="
-                + pending
+//                + "median="
+//                + median.estimation()
+//                + " quantile-low="
+//                + doWithQuantiles.get().getLowerQuantile()
+//                + " quantile-high="
+//                + doWithQuantiles.get().getHigherQuantile()
+//                + " inter-arrival="
+//                + interArrivalTime.value()
+//                + " duration/pending="
+//                + (pending == 0 ? 0 : (double) duration / pending)
+//                + " pending="
+//                + pending
                 + " availability= "
                 + availability()
                 + ")->";
@@ -335,12 +320,14 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
         private final AtomicBoolean done;
         private long start;
         private final Consumer<Double> updateQuantiles;
+        private final UUID id;
 
-        LatencySubscriber(Subscriber<U> child, WeightedRSocket socket, Consumer<Double> updateQuantiles;) {
+        LatencySubscriber(Subscriber<U> child, WeightedRSocket socket, Consumer<Double> updateQuantiles) {
             this.child = child;
             this.socket = socket;
             this.done = new AtomicBoolean(false);
             this.updateQuantiles = updateQuantiles;
+            this.id = UUID.randomUUID();
         }
 
         @Override
