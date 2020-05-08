@@ -40,23 +40,28 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     private final double exponentialFactor;
 
     private final Consumer<Double> updateQuantiles;
-    private final WeightingStatistics weightingStatistics;
+//    private final WeightingStatistics weightingStatistics;
+    private final ConcurrentPerformanceTracker concurrentPerformanceTracker;
 
-    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
-    private final ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations;
+//    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
+    private final ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations;
 
     DefaultWeightedRSocket(
-            ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
+            ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
             RSocket rSocket,
             Integer inactivityFactor
     ) {
         super(rSocket);
 
-        this.weightingStatistics = Optional
+//        this.weightingStatistics = Optional
+//                .ofNullable(inactivityFactor)
+//                .map(WeightingStatistics::new)
+//                .orElseGet(WeightingStatistics::new);
+        this.concurrentPerformanceTracker = Optional
                 .ofNullable(inactivityFactor)
-                .map(WeightingStatistics::new)
-                .orElseGet(WeightingStatistics::new);
-        this.weightingStatisticsOperations = new ConcurrentOperations<>(weightingStatistics);
+                .map(ConcurrentPerformanceTracker::new)
+                .orElseGet(ConcurrentPerformanceTracker::new);
+//        this.weightingStatisticsOperations = new ConcurrentOperations<>(weightingStatistics);
 
         this.updateQuantiles = rtt -> weightedRSocketPoolStatisticsOperations.write(
                 weightedRSocketPoolStatistics -> weightedRSocketPoolStatistics.updateQuantiles(rtt)
@@ -70,7 +75,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     }
 
     DefaultWeightedRSocket(
-            ConcurrentOperations<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
+            ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
             RSocket rSocket
     ) {
         this(weightedRSocketPoolStatisticsOperations, rSocket, null);
@@ -389,6 +394,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     private class CountingSubscriber<U> implements Subscriber<U> {
         private final Subscriber<U> child;
         private final WeightedRSocket socket;
+        private final UUID id = UUID.randomUUID();
 
         CountingSubscriber(Subscriber<U> child, WeightedRSocket socket) {
             this.child = child;

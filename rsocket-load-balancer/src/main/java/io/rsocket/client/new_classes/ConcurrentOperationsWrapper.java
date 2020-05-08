@@ -8,7 +8,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public class ConcurrentOperations<T> {
+public class ConcurrentOperationsWrapper<T> {
 
     private final AtomicReference<T> reference;
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
@@ -17,7 +17,7 @@ public class ConcurrentOperations<T> {
 
     private final ExecutorService executorService;
 
-    ConcurrentOperations(T t) {
+    ConcurrentOperationsWrapper(T t) {
         reference = new AtomicReference<>(t);
         executorService = Executors.newCachedThreadPool();
     }
