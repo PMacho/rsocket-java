@@ -2,7 +2,6 @@ package io.rsocket.client.new_classes;
 
 import io.rsocket.RSocket;
 import io.rsocket.client.filter.RSocketSupplier;
-import io.rsocket.util.RSocketProxy;
 import reactor.core.publisher.ConnectableFlux;
 import reactor.core.publisher.Mono;
 
@@ -14,7 +13,7 @@ import java.util.function.Supplier;
 
 public class WeightedRSocketPool {
 
-    private final ConcurrentOperations<WeightedRSocketPoolStatistics> loadBalancingStatisticsOperations;
+    private final ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> loadBalancingStatisticsOperations;
     private ConcurrentSkipListSet<RSocketSupplier> rSocketSuppliers;
 
     private ConnectableFlux<RSocket> weightedRSocketFlux;
@@ -22,7 +21,7 @@ public class WeightedRSocketPool {
     public WeightedRSocketPool(
             Collection<RSocketSupplier> rSocketSuppliers
     ) {
-        this.loadBalancingStatisticsOperations = new ConcurrentOperations<>(new WeightedRSocketPoolStatistics());
+        this.loadBalancingStatisticsOperations = new ConcurrentOperationsWrapper<>(new WeightedRSocketPoolStatistics());
         updateSuppliers(rSocketSuppliers);
     }
 
