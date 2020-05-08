@@ -12,14 +12,14 @@ public class WeightingStatisticsUtil {
     private static final double STARTUP_PENALTY = Long.MAX_VALUE >> 12;
 
     static double getPredictedLatency(
-            final int pending,
-            final long timeSinceLatestStart,
+            final long pending,
+            final long elapsed,
             final long inactivityFactor,
             final Median median,
-            final Ewma interArrivalTime,
+            final double interArrivalTime,
             final Supplier<Long> instantaneous
     ) {
-        final long elapsed = Math.max(timeSinceLatestStart, 1L);
+        final long limitedElapsed = Math.max(elapsed, 1L);
 
         final double prediction = median.estimation();
 
@@ -31,7 +31,7 @@ public class WeightingStatisticsUtil {
                 // subsequent requests while we don't have any history
                 weight = STARTUP_PENALTY + pending;
             }
-        } else if (pending == 0 && elapsed > inactivityFactor * interArrivalTime.value()) {
+        } else if (pending == 0 && limitedElapsed > inactivityFactor * interArrivalTime) {
             // if we did't see any data for a while, we decay the prediction by inserting
             // artificial 0.0 into the median
             median.insert(0.0);

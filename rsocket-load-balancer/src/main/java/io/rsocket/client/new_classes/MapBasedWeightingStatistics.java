@@ -17,7 +17,7 @@ public class MapBasedWeightingStatistics {
 
     private final long inactivityFactor;
 
-    private ConcurrentSubscriptionTracker concurrentSubscriptionTracker = new ConcurrentSubscriptionTracker();
+    private ConcurrentPerformanceTracker concurrentPerformanceTracker = new ConcurrentPerformanceTracker();
 
     private final Median median;
     private final Ewma interArrivalTime;
@@ -41,8 +41,8 @@ public class MapBasedWeightingStatistics {
 
     double getPredictedLatency() {
         final long now = now();
-        final long elapsed = Math.max(now - concurrentSubscriptionTracker.timeElapsed(), 1L);
-        final long pending = concurrentSubscriptionTracker.pending();
+        final long elapsed = Math.max(now - concurrentPerformanceTracker.timeElapsed(), 1L);
+        final long pending = concurrentPerformanceTracker.pending();
 
         final double prediction = median.estimation();
 
@@ -75,16 +75,16 @@ public class MapBasedWeightingStatistics {
     }
 
     private long instantaneous(long now) {
-        return concurrentSubscriptionTracker.getTrackedValues().stream().mapToLong(start -> Math.max(0, now - start)).sum();
+        return concurrentPerformanceTracker.getTrackedValues().stream().mapToLong(start -> Math.max(0, now - start)).sum();
     }
 
     void incr(UUID subscriberId, long now) {
         interArrivalTime.insert();
-        concurrentSubscriptionTracker.put(subscriberId, now);
+        concurrentPerformanceTracker.put(subscriberId, now);
     }
 
     void decr(UUID subscriberId, long now) {
-        concurrentSubscriptionTracker.remove(subscriberId);
+        concurrentPerformanceTracker.remove(subscriberId);
     }
 
     void updateMedian(double rtt) {
