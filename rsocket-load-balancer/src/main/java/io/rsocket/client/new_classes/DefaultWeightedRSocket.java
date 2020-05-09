@@ -5,11 +5,6 @@ import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.client.TimeoutException;
 import io.rsocket.client.TransportException;
-import io.rsocket.client.filter.RSocketSupplier;
-import io.rsocket.stat.Ewma;
-import io.rsocket.stat.Median;
-import io.rsocket.stat.Quantile;
-import io.rsocket.util.Clock;
 import io.rsocket.util.RSocketProxy;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -18,36 +13,33 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.MonoProcessor;
 
 import java.nio.channels.ClosedChannelException;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSocket {
 
     Logger logger = LoggerFactory.getLogger(DefaultWeightedRSocket.class);
 
-    private static final long DEFAULT_INITIAL_INTER_ARRIVAL_TIME =
-            Clock.unit().convert(1L, TimeUnit.SECONDS);
+    //    private static final long DEFAULT_INITIAL_INTER_ARRIVAL_TIME =
+//            Clock.unit().convert(1L, TimeUnit.SECONDS);
     private static final double DEFAULT_EXPONENTIAL_FACTOR = 4.0;
 
     private volatile double availability = 0.0;
     private final double exponentialFactor;
 
     private final Consumer<Double> updateQuantiles;
-//    private final WeightingStatistics weightingStatistics;
-    private final ConcurrentPerformanceTracker concurrentPerformanceTracker;
+    private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics;
+    private final ConcurrentSubscriptionTracker concurrentSubscriptionTracker;
 
-//    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
-    private final ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations;
+
+    //    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
+//    private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics;
 
     DefaultWeightedRSocket(
-            ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
+            WeightedRSocketPoolStatistics weightedRSocketPoolStatistics,
             RSocket rSocket,
             Integer inactivityFactor
     ) {
@@ -57,16 +49,18 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 //                .ofNullable(inactivityFactor)
 //                .map(WeightingStatistics::new)
 //                .orElseGet(WeightingStatistics::new);
-        this.concurrentPerformanceTracker = Optional
+        this.updateQuantiles = weightedRSocketPoolStatistics::updateQuantiles;
+        this.concurrentSubscriptionTracker = Optional
                 .ofNullable(inactivityFactor)
-                .map(ConcurrentPerformanceTracker::new)
-                .orElseGet(ConcurrentPerformanceTracker::new);
+                .map(factor -> new ConcurrentSubscriptionTracker(updateQuantiles, factor))
+                .orElseGet(() -> new ConcurrentSubscriptionTracker(updateQuantiles));
+        this.weightedRSocketPoolStatistics = weightedRSocketPoolStatistics;
 //        this.weightingStatisticsOperations = new ConcurrentOperations<>(weightingStatistics);
 
-        this.updateQuantiles = rtt -> weightedRSocketPoolStatisticsOperations.write(
-                weightedRSocketPoolStatistics -> weightedRSocketPoolStatistics.updateQuantiles(rtt)
-        );
-        this.weightedRSocketPoolStatisticsOperations = weightedRSocketPoolStatisticsOperations;
+//                .write(
+//                weightedRSocketPoolStatistics -> weightedRSocketPoolStatistics.updateQuantiles(rtt)
+//        );
+//        this.weightedRSocketPoolStatisticsOperations = weightedRSocketPoolStatisticsOperations;
 
         availability = 1.0;
         exponentialFactor = DEFAULT_EXPONENTIAL_FACTOR;
@@ -75,141 +69,153 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     }
 
     DefaultWeightedRSocket(
-            ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> weightedRSocketPoolStatisticsOperations,
+            WeightedRSocketPoolStatistics weightedRSocketPoolStatistics,
             RSocket rSocket
     ) {
-        this(weightedRSocketPoolStatisticsOperations, rSocket, null);
+        this(weightedRSocketPoolStatistics, rSocket, null);
     }
 
-    WeightedSocket(
-            RSocketSupplier factory,
-            Quantile lowerQuantile,
-            Quantile higherQuantile,
-            int inactivityFactor
-    ) {
-        this.rSocketMono = MonoProcessor.create();
-        this.lowerQuantile = lowerQuantile;
-        this.higherQuantile = higherQuantile;
-        this.inactivityFactor = inactivityFactor;
-        long now = Clock.now();
-        this.stamp = now;
-        this.stamp0 = now;
-        this.duration = 0L;
-        this.pending = 0;
-        this.median = new Median();
-        this.interArrivalTime = new Ewma(1, TimeUnit.MINUTES, DEFAULT_INITIAL_INTER_ARRIVAL_TIME);
-        this.pendingStreams = new AtomicLong();
-
-        logger.debug("Creating WeightedSocket {} from factory {}", WeightedSocket.this, factory);
-
-        WeightedSocket.this
-                .onClose()
-                .doFinally(
-                        s -> {
-                            pool.accept(factory);
-                            activeSockets.remove(WeightedSocket.this);
-                            logger.debug(
-                                    "Removed {} from factory {} from activeSockets", WeightedSocket.this, factory);
-                        })
-                .subscribe();
-
-        factory
-                .get()
-                .retryBackoff(weightedSocketRetries, weightedSocketBackOff, weightedSocketMaxBackOff)
-                .doOnError(
-                        throwable -> {
-                            logger.error(
-                                    "error while connecting {} from factory {}",
-                                    WeightedSocket.this,
-                                    factory,
-                                    throwable);
-                            WeightedSocket.this.dispose();
-                        })
-                .subscribe(
-                        rSocket -> {
-                            // When RSocket is closed, close the WeightedSocket
-                            rSocket
-                                    .onClose()
-                                    .doFinally(
-                                            signalType -> {
-                                                logger.info(
-                                                        "RSocket {} from factory {} closed", WeightedSocket.this, factory);
-                                                WeightedSocket.this.dispose();
-                                            })
-                                    .subscribe();
-
-                            // When the factory is closed, close the RSocket
-                            factory
-                                    .onClose()
-                                    .doFinally(
-                                            signalType -> {
-                                                logger.info("Factory {} closed", factory);
-                                                rSocket.dispose();
-                                            })
-                                    .subscribe();
-
-                            // When the WeightedSocket is closed, close the RSocket
-                            WeightedSocket.this
-                                    .onClose()
-                                    .doFinally(
-                                            signalType -> {
-                                                logger.info(
-                                                        "WeightedSocket {} from factory {} closed",
-                                                        WeightedSocket.this,
-                                                        factory);
-                                                rSocket.dispose();
-                                            })
-                                    .subscribe();
-
-                /*synchronized (LoadBalancedRSocketMono.this) {
-                  if (activeSockets.size() >= targetAperture) {
-                    quickSlowestRS();
-                    pendingSockets -= 1;
-                  }
-                }*/
-                            rSocketMono.onNext(rSocket);
-                            availability = 1.0;
-                            if (!WeightedSocket.this
-                                    .isDisposed()) { // May be already disposed because of retryBackoff delay
-                                activeSockets.add(WeightedSocket.this);
-                                logger.debug(
-                                        "Added WeightedSocket {} from factory {} to activeSockets",
-                                        WeightedSocket.this,
-                                        factory);
-                            }
-                        });
-    }
+//    WeightedSocket(
+//            RSocketSupplier factory,
+//            Quantile lowerQuantile,
+//            Quantile higherQuantile,
+//            int inactivityFactor
+//    ) {
+//        this.rSocketMono = MonoProcessor.create();
+//        this.lowerQuantile = lowerQuantile;
+//        this.higherQuantile = higherQuantile;
+//        this.inactivityFactor = inactivityFactor;
+//        long now = Clock.now();
+//        this.stamp = now;
+//        this.stamp0 = now;
+//        this.duration = 0L;
+//        this.pending = 0;
+//        this.median = new Median();
+//        this.interArrivalTime = new Ewma(1, TimeUnit.MINUTES, DEFAULT_INITIAL_INTER_ARRIVAL_TIME);
+//        this.pendingStreams = new AtomicLong();
+//
+//        logger.debug("Creating WeightedSocket {} from factory {}", WeightedSocket.this, factory);
+//
+//        WeightedSocket.this
+//                .onClose()
+//                .doFinally(
+//                        s -> {
+//                            pool.accept(factory);
+//                            activeSockets.remove(WeightedSocket.this);
+//                            logger.debug(
+//                                    "Removed {} from factory {} from activeSockets", WeightedSocket.this, factory);
+//                        })
+//                .subscribe();
+//
+//        factory
+//                .get()
+//                .retryBackoff(weightedSocketRetries, weightedSocketBackOff, weightedSocketMaxBackOff)
+//                .doOnError(
+//                        throwable -> {
+//                            logger.error(
+//                                    "error while connecting {} from factory {}",
+//                                    WeightedSocket.this,
+//                                    factory,
+//                                    throwable);
+//                            WeightedSocket.this.dispose();
+//                        })
+//                .subscribe(
+//                        rSocket -> {
+//                            // When RSocket is closed, close the WeightedSocket
+//                            rSocket
+//                                    .onClose()
+//                                    .doFinally(
+//                                            signalType -> {
+//                                                logger.info(
+//                                                        "RSocket {} from factory {} closed", WeightedSocket.this, factory);
+//                                                WeightedSocket.this.dispose();
+//                                            })
+//                                    .subscribe();
+//
+//                            // When the factory is closed, close the RSocket
+//                            factory
+//                                    .onClose()
+//                                    .doFinally(
+//                                            signalType -> {
+//                                                logger.info("Factory {} closed", factory);
+//                                                rSocket.dispose();
+//                                            })
+//                                    .subscribe();
+//
+//                            // When the WeightedSocket is closed, close the RSocket
+//                            WeightedSocket.this
+//                                    .onClose()
+//                                    .doFinally(
+//                                            signalType -> {
+//                                                logger.info(
+//                                                        "WeightedSocket {} from factory {} closed",
+//                                                        WeightedSocket.this,
+//                                                        factory);
+//                                                rSocket.dispose();
+//                                            })
+//                                    .subscribe();
+//
+//                /*synchronized (LoadBalancedRSocketMono.this) {
+//                  if (activeSockets.size() >= targetAperture) {
+//                    quickSlowestRS();
+//                    pendingSockets -= 1;
+//                  }
+//                }*/
+//                            rSocketMono.onNext(rSocket);
+//                            availability = 1.0;
+//                            if (!WeightedSocket.this
+//                                    .isDisposed()) { // May be already disposed because of retryBackoff delay
+//                                activeSockets.add(WeightedSocket.this);
+//                                logger.debug(
+//                                        "Added WeightedSocket {} from factory {} to activeSockets",
+//                                        WeightedSocket.this,
+//                                        factory);
+//                            }
+//                        });
+//    }
 
     @Override
-    public double algorithmicWeight() {
+    public Mono<Double> algorithmicWeight() {
         if (availability() == 0.0) {
-            return 0.0;
+            return Mono.just(0.0);
         }
 
-        return weightedRSocketPoolStatisticsOperations.read(
-                weightedRSocketPoolStatistics -> weightingStatisticsOperations.read(
-                        weightingStatistics -> algorithmicWeight(
-                                weightedRSocketPoolStatistics.getQuantiles(),
-                                weightingStatistics
+        return weightedRSocketPoolStatistics
+                .getQuantiles()
+                .flatMap(
+                        quantiles -> concurrentSubscriptionTracker.consume(
+                                tracker -> WeightingStatisticsUtil.algorithmicWeight(
+                                        quantiles.getLowerQuantile(),
+                                        quantiles.getHigherQuantile(),
+                                        tracker.predictedLatency(),
+                                        tracker.pending(),
+                                        exponentialFactor,
+                                        // fixme: ?
+                                        availability
+                                )
                         )
-                )
-        );
+                );
     }
 
     private double algorithmicWeight(
-            WeightedRSocketPoolStatistics.Quantiles quantiles,
-            WeightingStatistics weightingStatistics
+            final double lowerQuantile,
+            final double higherQuantile,
+            final int pending,
+            final double predictedLatency
+
+//            WeightedRSocketPoolStatistics.Quantiles quantiles,
+//            WeightingStatistics weightingStatistics
     ) {
-        final double low = quantiles.getLowerQuantile();
+        // fixme: What is this good for? Should this really be need?
         // ensure higherQuantile > lowerQuantile + .1%
-        final double high = Math.max(quantiles.getHigherQuantile(), low * 1.001);
-        final double bandWidth = Math.max(high - low, 1);
+        final double high = Math.max(higherQuantile, lowerQuantile * 1.001);
+        final double bandWidth = Math.max(high - lowerQuantile, 1);
 
-        final int pending = weightingStatistics.getPending();
-        double latency = weightingStatistics.getPredictedLatency();
+//        final int pending = weightingStatistics.getPending();
+        double latency = predictedLatency;
 
-        if (latency < low) {
-            double alpha = (low - latency) / bandWidth;
+        if (latency < lowerQuantile) {
+            double alpha = (lowerQuantile - latency) / bandWidth;
             double bonusFactor = Math.pow(1 + alpha, exponentialFactor);
             latency /= bonusFactor;
         } else if (latency > high) {
@@ -224,12 +230,13 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     private <U> LatencySubscriber<U> latencySubscriber(Subscriber<U> child, WeightedRSocket socket) {
         return new LatencySubscriber<>(
                 child,
-                socket,
-                rtt -> {
-                    // fixme: make atomic
-                    weightingStatisticsOperations.write(ws -> ws.updateMedian(rtt));
-                    updateQuantiles.accept(rtt);
-                }
+                socket
+//                rtt -> {
+//                    // fixme: make atomic
+//                    concurrentPerformanceTracker.updateMedian(rtt);
+////                    weightingStatisticsOperations.write(ws -> ws.updateMedian(rtt));
+//                    updateQuantiles.accept(rtt);
+//                }
         );
     }
 
@@ -244,51 +251,55 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
     @Override
     public Flux<Payload> requestStream(Payload payload) {
-        return Flux.from(subscriber -> source
-                .requestStream(payload)
-                .subscribe(new CountingSubscriber<>(subscriber, this))
+        return Flux.from(
+                subscriber -> source
+                        .requestStream(payload)
+                        .subscribe(new CountingSubscriber<>(subscriber, this))
         );
     }
 
     @Override
     public Mono<Void> fireAndForget(Payload payload) {
-        return Mono.from(subscriber -> source
-                .fireAndForget(payload)
-                .subscribe(new CountingSubscriber<>(subscriber, this))
+        return Mono.from(
+                subscriber -> source
+                        .fireAndForget(payload)
+                        .subscribe(new CountingSubscriber<>(subscriber, this))
         );
     }
 
     @Override
     public Mono<Void> metadataPush(Payload payload) {
-        return Mono.from(subscriber -> source
-                .metadataPush(payload)
-                .subscribe(new CountingSubscriber<>(subscriber, this))
+        return Mono.from(
+                subscriber -> source
+                        .metadataPush(payload)
+                        .subscribe(new CountingSubscriber<>(subscriber, this))
         );
     }
 
     @Override
     public Flux<Payload> requestChannel(Publisher<Payload> payloads) {
-        return Flux.from(subscriber -> source
-                .requestChannel(payloads)
-                .subscribe(new CountingSubscriber<>(subscriber, this))
+        return Flux.from(
+                subscriber -> source
+                        .requestChannel(payloads)
+                        .subscribe(new CountingSubscriber<>(subscriber, this))
         );
     }
 
-    private long incr() {
-        long now = now();
-        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.incr(now));
-        return now;
-    }
+//    private long incr() {
+//        long now = now();
+//        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.incr(now));
+//        return now;
+//    }
 
-    private long decr(long start) {
-        long now = now();
-        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.decr(start, now));
-        return now;
-    }
+//    private long decr(long start) {
+//        long now = now();
+//        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.decr(start, now));
+//        return now;
+//    }
 
-    private long now() {
-        return Clock.now();
-    }
+//    private long now() {
+//        return Clock.now();
+//    }
 
     @Override
     public double availability() {
@@ -322,22 +333,21 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     private class LatencySubscriber<U> implements Subscriber<U> {
         private final Subscriber<U> child;
         private final WeightedRSocket socket;
-        private final AtomicBoolean done;
-        private long start;
-        private final Consumer<Double> updateQuantiles;
+        //        private final AtomicBoolean done;
+//        private long start;
         private final UUID id;
 
-        LatencySubscriber(Subscriber<U> child, WeightedRSocket socket, Consumer<Double> updateQuantiles) {
+        LatencySubscriber(Subscriber<U> child, WeightedRSocket socket) {
             this.child = child;
             this.socket = socket;
-            this.done = new AtomicBoolean(false);
-            this.updateQuantiles = updateQuantiles;
+//            this.done = new AtomicBoolean(false);
             this.id = UUID.randomUUID();
         }
 
         @Override
         public void onSubscribe(Subscription s) {
-            start = incr();
+            concurrentSubscriptionTracker.addLatencySubscriber(id);
+//            start = incr();
             child.onSubscribe(
                     new Subscription() {
                         @Override
@@ -347,10 +357,11 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
                         @Override
                         public void cancel() {
-                            if (done.compareAndSet(false, true)) {
-                                s.cancel();
-                                decr(start);
-                            }
+//                            if (done.compareAndSet(false, true)) {
+                            s.cancel();
+                            concurrentSubscriptionTracker.removeLatencySubscriber(id);
+//                                decr(start);
+//                            }
                         }
                     });
         }
@@ -362,29 +373,32 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onError(Throwable t) {
-            if (done.compareAndSet(false, true)) {
-                child.onError(t);
-                long now = decr(start);
-                if (t instanceof TransportException || t instanceof ClosedChannelException) {
-                    socket.dispose();
-                } else if (t instanceof TimeoutException) {
-                    updateQuantiles(now);
-                }
+//            if (done.compareAndSet(false, true)) {
+            child.onError(t);
+//                long now = decr(start);
+            if (t instanceof TransportException || t instanceof ClosedChannelException) {
+                socket.dispose();
+                concurrentSubscriptionTracker.removeLatencySubscriber(id);
+            } else if (t instanceof TimeoutException) {
+//                    updateQuantiles(now);
+                concurrentSubscriptionTracker.removeLatencySubscriberAndUpdateQuantiles(id);
             }
+//            }
         }
 
         @Override
         public void onComplete() {
-            if (done.compareAndSet(false, true)) {
-                long now = decr(start);
-                updateQuantiles(now);
-                child.onComplete();
-            }
+//            if (done.compareAndSet(false, true)) {
+//                long now = decr(start);
+//                updateQuantiles(now);
+            child.onComplete();
+            concurrentSubscriptionTracker.removeLatencySubscriberAndUpdateQuantiles(id);
+//            }
         }
 
-        private void updateQuantiles(long now) {
-            updateQuantiles.accept((double) now - start);
-        }
+//        private void updateQuantiles(long now) {
+//            updateQuantiles.accept((double) now - start);
+//        }
     }
 
     /**
@@ -403,8 +417,9 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onSubscribe(Subscription s) {
-            weightingStatistics.addStream();
+//            weightingStatistics.addStream();
             child.onSubscribe(s);
+            concurrentSubscriptionTracker.addCountingSubscriber(id);
         }
 
         @Override
@@ -414,8 +429,9 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onError(Throwable t) {
-            weightingStatistics.removeStream();
+//            weightingStatistics.removeStream();
             child.onError(t);
+            concurrentSubscriptionTracker.removeCountingSubscriber(id);
             if (t instanceof TransportException || t instanceof ClosedChannelException) {
                 logger.debug("Disposing {} from activeSockets because of error {}", socket, t);
                 socket.dispose();
@@ -424,8 +440,9 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onComplete() {
-            weightingStatistics.removeStream();
+//            weightingStatistics.removeStream();
             child.onComplete();
+            concurrentSubscriptionTracker.removeCountingSubscriber(id);
         }
     }
 
