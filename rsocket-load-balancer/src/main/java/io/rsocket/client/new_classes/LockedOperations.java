@@ -1,7 +1,6 @@
 package io.rsocket.client.new_classes;
 
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
@@ -21,33 +20,45 @@ public abstract class LockedOperations {
     }
 
     protected void write(Runnable runnable) {
-        executorService.execute(() -> {
-            writeLock.lock();
-            try {
-                runnable.run();
-            } finally {
-                writeLock.unlock();
-            }
-        });
+        run(runnable, writeLock);
     }
 
-    protected <S> Future<S> read(Callable<S> callable) {
-        return executorService.submit(() -> {
-            readLock.lock();
-            try {
-                return callable.call();
-            } finally {
-                writeLock.unlock();
-            }
-        });
+    protected void read(Runnable runnable) {
+        run(runnable, readLock);
     }
 
-    protected <S> CompletableFuture<S> readCompletable(Supplier<S> supplier) {
+    protected <S> CompletableFuture<S> write(Supplier<S> supplier) {
+        return supply(supplier, writeLock);
+    }
+
+    protected <S> CompletableFuture<S> read(Supplier<S> supplier) {
+        return supply(supplier, readLock);
+    }
+
+    public <S> Supplier<CompletableFuture<S>> consume(Supplier<S> mapper) {
+        return () -> read(mapper);
+    }
+
+    protected <S> CompletableFuture<S> supply(Supplier<S> supplier, Lock lock) {
         return CompletableFuture.supplyAsync(
                 () -> {
-                    readLock.lock();
+                    lock.lock();
                     try {
                         return supplier.get();
+                    } finally {
+                        writeLock.unlock();
+                    }
+                },
+                executorService
+        );
+    }
+
+    protected void run(Runnable runnable, Lock lock) {
+        CompletableFuture.runAsync(
+                () -> {
+                    lock.lock();
+                    try {
+                        runnable.run();
                     } finally {
                         writeLock.unlock();
                     }
