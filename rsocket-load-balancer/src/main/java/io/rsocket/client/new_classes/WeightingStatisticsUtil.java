@@ -1,10 +1,7 @@
 package io.rsocket.client.new_classes;
 
-import io.rsocket.stat.Ewma;
 import io.rsocket.stat.Median;
-import io.rsocket.util.Clock;
 
-import java.util.UUID;
 import java.util.function.Supplier;
 
 public class WeightingStatisticsUtil {
@@ -49,6 +46,52 @@ public class WeightingStatisticsUtil {
         }
 
         return weight;
+    }
+
+    static double algorithmicWeight(
+            final double lowerQuantile,
+            final double higherQuantile,
+            final double predictedLatency,
+            final long pending,
+            final double exponentialFactor,
+            final double availability
+    ) {
+        // fixme: What is this good for? Should this really be need?
+        // ensure higherQuantile > lowerQuantile + .1%
+        final double high = Math.max(higherQuantile, lowerQuantile * 1.001);
+        final double bandWidth = Math.max(high - lowerQuantile, 1);
+
+        double latency = predictedLatency;
+
+        if (latency < lowerQuantile) {
+            double alpha = (lowerQuantile - latency) / bandWidth;
+            double bonusFactor = Math.pow(1 + alpha, exponentialFactor);
+            latency /= bonusFactor;
+        } else if (latency > high) {
+            double alpha = (latency - high) / bandWidth;
+            double penaltyFactor = Math.pow(1 + alpha, exponentialFactor);
+            latency *= penaltyFactor;
+        }
+
+        return availability * 1.0 / (1.0 + latency * (pending + 1));
+    }
+
+    static class LatencyVariables {
+        private final double predictedLatency;
+        private final long pending;
+
+        public LatencyVariables(double predictedLatency, long pending) {
+            this.predictedLatency = predictedLatency;
+            this.pending = pending;
+        }
+
+        public double getPredictedLatency() {
+            return predictedLatency;
+        }
+
+        public long getPending() {
+            return pending;
+        }
     }
 
 }

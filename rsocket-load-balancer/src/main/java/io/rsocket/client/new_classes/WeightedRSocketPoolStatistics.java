@@ -1,36 +1,51 @@
 package io.rsocket.client.new_classes;
 
 import io.rsocket.stat.FrugalQuantile;
+import reactor.core.publisher.Mono;
 
-public class WeightedRSocketPoolStatistics {
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+
+public class WeightedRSocketPoolStatistics extends LockedOperations {
 
     static final double DEFAULT_LOWER_QUANTILE = 0.2;
     static final double DEFAULT_HIGHER_QUANTILE = 0.8;
 
-    private final Quantiles quantiles;
+    private final AtomicReference<QuantilesWrapper> quantilesReference;
 
     WeightedRSocketPoolStatistics() {
-        this.quantiles = new Quantiles(DEFAULT_LOWER_QUANTILE, DEFAULT_HIGHER_QUANTILE);
+        super();
+        this.quantilesReference = new AtomicReference<>(new QuantilesWrapper(DEFAULT_LOWER_QUANTILE, DEFAULT_HIGHER_QUANTILE));
     }
 
     public void updateQuantiles(double rtt) {
-        quantiles.update(rtt);
+        write(() -> quantilesReference.updateAndGet(q -> q.update(rtt)));
     }
 
-    public Quantiles getQuantiles() {
-        return quantiles;
+//    public <S> CompletableFuture<S> withQuantiles(Function<QuantilesWrapper, S> mapper) {
+//        return read(() -> mapper.apply(quantilesReference.get()));
+//    }
+
+    public Mono<Quantiles> getQuantiles() {
+        return Mono.fromFuture(
+                read(() -> {
+                    final QuantilesWrapper quantilesWrapper = quantilesReference.get();
+                    return new Quantiles(quantilesWrapper.getLowerQuantile(), quantilesWrapper.getHigherQuantile());
+                })
+        );
     }
 
-    static class Quantiles {
+    static class QuantilesWrapper {
         private FrugalQuantile lowerQuantile;
         private FrugalQuantile higherQuantile;
 
-        Quantiles(double initialLowerQuantile, double initialHigherQuantile) {
+        QuantilesWrapper(double initialLowerQuantile, double initialHigherQuantile) {
             this.lowerQuantile = new FrugalQuantile(initialLowerQuantile);
             this.higherQuantile = new FrugalQuantile(initialHigherQuantile);
         }
 
-        WeightedRSocketPoolStatistics.Quantiles update(double rtt) {
+        QuantilesWrapper update(double rtt) {
             lowerQuantile.insert(rtt);
             higherQuantile.insert(rtt);
             return this;
@@ -42,6 +57,24 @@ public class WeightedRSocketPoolStatistics {
 
         double getHigherQuantile() {
             return higherQuantile.estimation();
+        }
+    }
+
+    static class Quantiles {
+        private final double lowerQuantile;
+        private final double higherQuantile;
+
+        public Quantiles(final double lowerQuantile, final double higherQuantile) {
+            this.lowerQuantile = lowerQuantile;
+            this.higherQuantile = higherQuantile;
+        }
+
+        public double getHigherQuantile() {
+            return higherQuantile;
+        }
+
+        public double getLowerQuantile() {
+            return lowerQuantile;
         }
     }
 

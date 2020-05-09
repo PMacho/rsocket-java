@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public class WeightedRSocketPool {
+public class WeightedRSocketPool extends LockedOperations {
 
     private final ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> loadBalancingStatisticsOperations;
     private ConcurrentSkipListSet<RSocketSupplier> rSocketSuppliers;
@@ -45,11 +45,11 @@ public class WeightedRSocketPool {
         );
     }
 
-    private Supplier<WeightedRSocketPoolStatistics.Quantiles> lala() {
+    private Supplier<WeightedRSocketPoolStatistics.QuantilesWrapper> lala() {
         return () -> loadBalancingStatisticsOperations.read(WeightedRSocketPoolStatistics::getQuantiles);
     }
 
-    private <S> S withQuantiles(Function<WeightedRSocketPoolStatistics.Quantiles, S> quantilesConsumer) {
+    private <S> S withQuantiles(Function<WeightedRSocketPoolStatistics.QuantilesWrapper, S> quantilesConsumer) {
         return loadBalancingStatisticsOperations.read(
                 weightedRSocketPoolStatistics -> quantilesConsumer.apply(weightedRSocketPoolStatistics.getQuantiles())
         );
