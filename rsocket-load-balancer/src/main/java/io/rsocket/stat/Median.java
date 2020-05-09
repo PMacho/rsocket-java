@@ -23,6 +23,7 @@ public class Median extends FrugalQuantile {
   }
 
   @Override
+  // fixme: I think I don't need to synchronize
   public synchronized void insert(double x) {
     if (sign == 0) {
       estimate = x;

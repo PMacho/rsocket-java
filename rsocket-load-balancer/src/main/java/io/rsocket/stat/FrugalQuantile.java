@@ -52,6 +52,7 @@ public class FrugalQuantile implements Quantile {
   }
 
   @Override
+  // fixme: probably not needed to be synchronized
   public synchronized void insert(double x) {
     if (sign == 0) {
       estimate = x;

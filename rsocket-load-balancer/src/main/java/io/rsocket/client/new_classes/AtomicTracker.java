@@ -25,8 +25,8 @@ public class AtomicTracker {
         trackerMap.putIfAbsent(uuid, timestamp);
     }
 
-    public void remove(UUID uuid) {
-        trackerMap.replace(uuid, tombstone);
+    public Long remove(UUID uuid) {
+        return trackerMap.replace(uuid, tombstone);
     }
 
     public Stream<Long> startTimes() {
