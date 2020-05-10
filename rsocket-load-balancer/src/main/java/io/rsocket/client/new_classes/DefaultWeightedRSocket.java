@@ -23,20 +23,14 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
     Logger logger = LoggerFactory.getLogger(DefaultWeightedRSocket.class);
 
-    //    private static final long DEFAULT_INITIAL_INTER_ARRIVAL_TIME =
-//            Clock.unit().convert(1L, TimeUnit.SECONDS);
     private static final double DEFAULT_EXPONENTIAL_FACTOR = 4.0;
 
-    private volatile double availability = 0.0;
-    private final double exponentialFactor;
+    private volatile double availability;
 
-    private final Consumer<Double> updateQuantiles;
     private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics;
     private final ConcurrentSubscriptionTracker concurrentSubscriptionTracker;
 
-
-    //    private final ConcurrentOperations<WeightingStatistics> weightingStatisticsOperations;
-//    private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics;
+    private final double exponentialFactor;
 
     DefaultWeightedRSocket(
             WeightedRSocketPoolStatistics weightedRSocketPoolStatistics,
@@ -45,22 +39,12 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     ) {
         super(rSocket);
 
-//        this.weightingStatistics = Optional
-//                .ofNullable(inactivityFactor)
-//                .map(WeightingStatistics::new)
-//                .orElseGet(WeightingStatistics::new);
-        this.updateQuantiles = weightedRSocketPoolStatistics::updateQuantiles;
+        final Consumer<Double> updateQuantiles = weightedRSocketPoolStatistics::updateQuantiles;
         this.concurrentSubscriptionTracker = Optional
                 .ofNullable(inactivityFactor)
                 .map(factor -> new ConcurrentSubscriptionTracker(updateQuantiles, factor))
                 .orElseGet(() -> new ConcurrentSubscriptionTracker(updateQuantiles));
         this.weightedRSocketPoolStatistics = weightedRSocketPoolStatistics;
-//        this.weightingStatisticsOperations = new ConcurrentOperations<>(weightingStatistics);
-
-//                .write(
-//                weightedRSocketPoolStatistics -> weightedRSocketPoolStatistics.updateQuantiles(rtt)
-//        );
-//        this.weightedRSocketPoolStatisticsOperations = weightedRSocketPoolStatisticsOperations;
 
         availability = 1.0;
         exponentialFactor = DEFAULT_EXPONENTIAL_FACTOR;
@@ -197,47 +181,8 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
                 );
     }
 
-    private double algorithmicWeight(
-            final double lowerQuantile,
-            final double higherQuantile,
-            final int pending,
-            final double predictedLatency
-
-//            WeightedRSocketPoolStatistics.Quantiles quantiles,
-//            WeightingStatistics weightingStatistics
-    ) {
-        // fixme: What is this good for? Should this really be need?
-        // ensure higherQuantile > lowerQuantile + .1%
-        final double high = Math.max(higherQuantile, lowerQuantile * 1.001);
-        final double bandWidth = Math.max(high - lowerQuantile, 1);
-
-//        final int pending = weightingStatistics.getPending();
-        double latency = predictedLatency;
-
-        if (latency < lowerQuantile) {
-            double alpha = (lowerQuantile - latency) / bandWidth;
-            double bonusFactor = Math.pow(1 + alpha, exponentialFactor);
-            latency /= bonusFactor;
-        } else if (latency > high) {
-            double alpha = (latency - high) / bandWidth;
-            double penaltyFactor = Math.pow(1 + alpha, exponentialFactor);
-            latency *= penaltyFactor;
-        }
-
-        return source.availability() * 1.0 / (1.0 + latency * (pending + 1));
-    }
-
     private <U> LatencySubscriber<U> latencySubscriber(Subscriber<U> child, WeightedRSocket socket) {
-        return new LatencySubscriber<>(
-                child,
-                socket
-//                rtt -> {
-//                    // fixme: make atomic
-//                    concurrentPerformanceTracker.updateMedian(rtt);
-////                    weightingStatisticsOperations.write(ws -> ws.updateMedian(rtt));
-//                    updateQuantiles.accept(rtt);
-//                }
-        );
+        return new LatencySubscriber<>(child, socket);
     }
 
     @Override
@@ -285,22 +230,6 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
         );
     }
 
-//    private long incr() {
-//        long now = now();
-//        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.incr(now));
-//        return now;
-//    }
-
-//    private long decr(long start) {
-//        long now = now();
-//        weightingStatisticsOperations.write(weightingStatistics -> weightingStatistics.decr(start, now));
-//        return now;
-//    }
-
-//    private long now() {
-//        return Clock.now();
-//    }
-
     @Override
     public double availability() {
         return availability;
@@ -333,21 +262,17 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
     private class LatencySubscriber<U> implements Subscriber<U> {
         private final Subscriber<U> child;
         private final WeightedRSocket socket;
-        //        private final AtomicBoolean done;
-//        private long start;
         private final UUID id;
 
         LatencySubscriber(Subscriber<U> child, WeightedRSocket socket) {
             this.child = child;
             this.socket = socket;
-//            this.done = new AtomicBoolean(false);
             this.id = UUID.randomUUID();
         }
 
         @Override
         public void onSubscribe(Subscription s) {
             concurrentSubscriptionTracker.addLatencySubscriber(id);
-//            start = incr();
             child.onSubscribe(
                     new Subscription() {
                         @Override
@@ -357,11 +282,8 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
                         @Override
                         public void cancel() {
-//                            if (done.compareAndSet(false, true)) {
                             s.cancel();
                             concurrentSubscriptionTracker.removeLatencySubscriber(id);
-//                                decr(start);
-//                            }
                         }
                     });
         }
@@ -373,32 +295,21 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onError(Throwable t) {
-//            if (done.compareAndSet(false, true)) {
             child.onError(t);
-//                long now = decr(start);
             if (t instanceof TransportException || t instanceof ClosedChannelException) {
                 socket.dispose();
                 concurrentSubscriptionTracker.removeLatencySubscriber(id);
             } else if (t instanceof TimeoutException) {
-//                    updateQuantiles(now);
                 concurrentSubscriptionTracker.removeLatencySubscriberAndUpdateQuantiles(id);
             }
-//            }
         }
 
         @Override
         public void onComplete() {
-//            if (done.compareAndSet(false, true)) {
-//                long now = decr(start);
-//                updateQuantiles(now);
             child.onComplete();
             concurrentSubscriptionTracker.removeLatencySubscriberAndUpdateQuantiles(id);
-//            }
         }
 
-//        private void updateQuantiles(long now) {
-//            updateQuantiles.accept((double) now - start);
-//        }
     }
 
     /**
@@ -417,7 +328,6 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onSubscribe(Subscription s) {
-//            weightingStatistics.addStream();
             child.onSubscribe(s);
             concurrentSubscriptionTracker.addCountingSubscriber(id);
         }
@@ -429,7 +339,6 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onError(Throwable t) {
-//            weightingStatistics.removeStream();
             child.onError(t);
             concurrentSubscriptionTracker.removeCountingSubscriber(id);
             if (t instanceof TransportException || t instanceof ClosedChannelException) {
@@ -440,10 +349,10 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
         @Override
         public void onComplete() {
-//            weightingStatistics.removeStream();
             child.onComplete();
             concurrentSubscriptionTracker.removeCountingSubscriber(id);
         }
+
     }
 
 }
