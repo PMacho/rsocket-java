@@ -31,6 +31,8 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoProcessor;
 
 /** */
+
+// todo: make my statistics asynchronous
 public class RSocketSupplier implements Availability, Supplier<Mono<RSocket>>, Closeable {
 
   private static final double EPSILON = 1e-4;
@@ -81,6 +83,7 @@ public class RSocketSupplier implements Availability, Supplier<Mono<RSocket>>, C
   public Mono<RSocket> get() {
     return rSocketSupplier
         .get()
+            // fixme: really needed here and down there later?
         .doOnNext(o -> updateErrorPercentage(1.0))
         .doOnError(t -> updateErrorPercentage(0.0))
         .map(AvailabilityAwareRSocketProxy::new);
