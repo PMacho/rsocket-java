@@ -3,9 +3,7 @@ package io.rsocket.client.new_classes;
 import io.rsocket.stat.FrugalQuantile;
 import reactor.core.publisher.Mono;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 
 public class WeightedRSocketPoolStatistics extends LockedOperations {
 
@@ -22,10 +20,6 @@ public class WeightedRSocketPoolStatistics extends LockedOperations {
     public void updateQuantiles(double rtt) {
         write(() -> quantilesReference.updateAndGet(q -> q.update(rtt)));
     }
-
-//    public <S> CompletableFuture<S> withQuantiles(Function<QuantilesWrapper, S> mapper) {
-//        return read(() -> mapper.apply(quantilesReference.get()));
-//    }
 
     public Mono<Quantiles> getQuantiles() {
         return Mono.fromFuture(

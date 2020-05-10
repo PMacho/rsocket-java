@@ -1,43 +1,41 @@
 package io.rsocket.client.new_classes;
 
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+import java.time.Duration;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 public class AtomicTracker {
 
-    private static final long tombstone = -1;
-
-    private static final Predicate<Long> isTombstone = start -> start == tombstone;
-
     private final ConcurrentHashMap<UUID, Long> trackerMap = new ConcurrentHashMap<>();
 
     public AtomicTracker() {
-        Executors
-                .newSingleThreadScheduledExecutor()
-                .scheduleAtFixedRate(this::compaction, 0, 100, TimeUnit.MILLISECONDS);
     }
 
     public void put(UUID uuid, Long timestamp) {
         trackerMap.putIfAbsent(uuid, timestamp);
     }
 
-    public Long remove(UUID uuid) {
-        return trackerMap.replace(uuid, tombstone);
+    public Mono<Long> remove(UUID uuid) {
+        return Flux
+                .interval(Duration.ZERO, Duration.ofMillis(10))
+                .filter(i -> trackerMap.containsKey(uuid))
+                .take(1)
+                .then(Mono.fromCallable(() -> trackerMap.remove(uuid)));
     }
 
     public Stream<Long> startTimes() {
-        return trackerMap.values().stream().filter(isTombstone.negate());
+        return trackerMap.values().stream();
     }
 
     public long trackedObjectsCount() {
-        return startTimes().count();
+        return trackerMap.size();
     }
 
-    private void compaction() {
-        trackerMap.values().removeIf(isTombstone);
-    }
 }

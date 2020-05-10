@@ -72,20 +72,20 @@ public class ConcurrentSubscriptionTracker extends LockedOperations {
         });
     }
 
-    public CompletableFuture<Long> removeLatencySubscriber(UUID uuid) {
-        return write(() -> requestTracker.remove(uuid));
+    public Mono<Long> removeLatencySubscriber(UUID uuid) {
+        return requestTracker.remove(uuid);
     }
 
     public void removeLatencySubscriberAndUpdateQuantiles(UUID uuid) {
         final long now = now();
-        Mono
-                .fromFuture(removeLatencySubscriber(uuid))
-                .subscribe(start -> {
+        removeLatencySubscriber(uuid).subscribe(
+                start -> {
                     final double rtt = (double) now - start;
                     updateQuantiles.accept(rtt);
                     updateMedian(rtt);
 
-                });
+                }
+        );
     }
 
     public void addCountingSubscriber(UUID uuid) {
