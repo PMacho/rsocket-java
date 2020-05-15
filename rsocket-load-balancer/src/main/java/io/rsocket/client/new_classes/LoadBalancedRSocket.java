@@ -4,6 +4,7 @@ import io.rsocket.AbstractRSocket;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.client.filter.RSocketSupplier;
+import io.rsocket.util.RSocketProxy;
 import org.reactivestreams.Publisher;
 import reactor.core.Disposable;
 import reactor.core.publisher.ConnectableFlux;
@@ -21,9 +22,10 @@ public class LoadBalancedRSocket extends AbstractRSocket {
     private ConnectableFlux<RSocket> weightedRSocketFlux;
 
     public LoadBalancedRSocket(
-            Publisher<? extends Collection<RSocketSupplier>> rSocketSuppliers
+            Publisher<? extends Collection<RSocket>> rSocketsPublisher
     ) {
-        this.loadBalancingStatisticsOperations = new ConcurrentOperationsWrapper<>(new WeightedRSocketPoolStatistics());
+//        this.loadBalancingStatisticsOperations = new ConcurrentOperationsWrapper<>(new WeightedRSocketPoolStatistics());
+
     }
 
     private final ConcurrentSkipListSet<WeightedRSocket> activeSockets = new ConcurrentSkipListSet<>(
