@@ -3,7 +3,7 @@ package io.rsocket.client.new_classes;
 import io.rsocket.AbstractRSocket;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
-import io.rsocket.client.strategies.weighted.WeightedRSocketPool;
+import io.rsocket.client.strategies.weighted.pool.WeightedRSocketPool;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;

@@ -1,4 +1,4 @@
-package io.rsocket.client.strategies.weighted;
+package io.rsocket.client.strategies.weighted.socket;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
