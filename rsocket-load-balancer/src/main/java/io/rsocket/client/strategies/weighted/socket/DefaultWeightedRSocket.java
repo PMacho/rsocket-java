@@ -1,10 +1,11 @@
-package io.rsocket.client.strategies.weighted;
+package io.rsocket.client.strategies.weighted.socket;
 
 
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.client.TimeoutException;
 import io.rsocket.client.TransportException;
+import io.rsocket.client.strategies.weighted.pool.WeightedRSocketPoolStatistics;
 import io.rsocket.util.RSocketProxy;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
