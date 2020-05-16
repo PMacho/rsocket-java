@@ -1,10 +1,10 @@
-package io.rsocket.client.new_classes;
+package io.rsocket.client.basic;
 
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 public abstract class LockedOperations {
@@ -15,7 +15,7 @@ public abstract class LockedOperations {
 
     private final ExecutorService executorService;
 
-    LockedOperations() {
+    public LockedOperations() {
         executorService = Executors.newCachedThreadPool();
     }
 
