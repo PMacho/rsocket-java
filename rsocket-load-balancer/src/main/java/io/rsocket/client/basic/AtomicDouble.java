@@ -4,6 +4,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.DoubleBinaryOperator;
 import java.util.function.DoubleUnaryOperator;
 
+/**
+ * see https://stackoverflow.com/a/45780734/2739681
+ */
+
 public final class AtomicDouble extends Number {
         private static final long serialVersionUID = 12327722191124184L;
 

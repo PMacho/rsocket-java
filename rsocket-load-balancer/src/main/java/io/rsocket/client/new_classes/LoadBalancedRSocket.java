@@ -3,84 +3,77 @@ package io.rsocket.client.new_classes;
 import io.rsocket.AbstractRSocket;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
-import io.rsocket.client.filter.RSocketSupplier;
-import io.rsocket.util.RSocketProxy;
+import io.rsocket.client.strategies.weighted.WeightedRSocketPool;
 import org.reactivestreams.Publisher;
-import reactor.core.Disposable;
-import reactor.core.publisher.ConnectableFlux;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.concurrent.ConcurrentSkipListSet;
 
 public class LoadBalancedRSocket extends AbstractRSocket {
 
-    private final ConcurrentOperationsWrapper<WeightedRSocketPoolStatistics> loadBalancingStatisticsOperations;
+    private final RSocketPool<? extends RSocket> rSocketPool;
 
-    private ConnectableFlux<RSocket> weightedRSocketFlux;
-
-    public LoadBalancedRSocket(
-            Publisher<? extends Collection<RSocket>> rSocketsPublisher
+    public <S extends RSocket> LoadBalancedRSocket(
+            Publisher<? extends Collection<RSocket>> rSocketsPublisher,
+            RSocketPool<S> rSocketPool
     ) {
-//        this.loadBalancingStatisticsOperations = new ConcurrentOperationsWrapper<>(new WeightedRSocketPoolStatistics());
-
+        this.rSocketPool = rSocketPool;
+        this.rSocketPool.start(rSocketsPublisher);
     }
 
-    private final ConcurrentSkipListSet<WeightedRSocket> activeSockets = new ConcurrentSkipListSet<>(
-            Comparator.comparingDouble(WeightedRSocket::algorithmicWeight)
-    );
+    public LoadBalancedRSocket(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
+        this(rSocketsPublisher, new WeightedRSocketPool());
+    }
 
-    private Mono<RSocket> select() {
-
-        RSocketProxy
-
+    private Mono<? extends RSocket> select() {
+        return rSocketPool.select();
     }
 
     @Override
     public Mono<Void> fireAndForget(Payload payload) {
-        return select().flatMap(rSocket -> rSocket.fireAndForget(payload));
+        return select()
+                .flatMap(rSocket -> rSocket.fireAndForget(payload))
+                .doOnNext(n -> rSocketPool.update());
     }
 
     @Override
     public Mono<Payload> requestResponse(Payload payload) {
-        return select().flatMap(rSocket -> rSocket.requestResponse(payload));
+        return select()
+                .flatMap(rSocket -> rSocket.requestResponse(payload))
+                .doOnNext(n -> rSocketPool.update());
     }
 
     @Override
     public Flux<Payload> requestStream(Payload payload) {
-        return select().flatMapMany(rSocket -> rSocket.requestStream(payload));
+        return select()
+                .flatMapMany(rSocket -> rSocket.requestStream(payload))
+                .doOnComplete(rSocketPool::update);
     }
 
     @Override
     public Flux<Payload> requestChannel(Publisher<Payload> payloads) {
-        return select().flatMapMany(rSocket -> rSocket.requestChannel(payloads));
+        return select()
+                .flatMapMany(rSocket -> rSocket.requestChannel(payloads))
+                .doOnComplete(rSocketPool::update);
     }
 
     @Override
     // fixme: Am I really correct?
     public Mono<Void> metadataPush(Payload payload) {
-        return Mono
-                .when(
-                        () -> activeSockets
-                                .stream()
-                                .<Publisher<?>>map(rSocket -> rSocket.metadataPush(payload))
-                                .iterator()
-                )
+        return rSocketPool
+                .selectAll()
+                .flatMap(rSocket -> rSocket.metadataPush(payload))
+                .doOnComplete(rSocketPool::update)
                 .then();
     }
 
     @Override
     public void dispose() {
-        synchronized (this) {
-            activeSockets.forEach(Disposable::dispose);
-            activeSockets.clear();
-//            activeSockets.forEach(LoadBalancedRSocketMono.WeightedSocket::dispose);
-//            activeSockets.clear();
-            super.dispose();
-        }
+        rSocketPool
+                .clean()
+                .then(Mono.fromRunnable(super::dispose))
+                .subscribe();
     }
-
 
 }

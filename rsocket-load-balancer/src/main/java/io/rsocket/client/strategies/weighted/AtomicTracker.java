@@ -1,4 +1,4 @@
-package io.rsocket.client.new_classes;
+package io.rsocket.client.strategies.weighted;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -24,7 +24,7 @@ public class AtomicTracker {
 
     public Mono<Long> remove(UUID uuid) {
         return Flux
-                .interval(Duration.ZERO, Duration.ofMillis(10))
+                .interval(Duration.ZERO, Duration.ofMillis(5))
                 .filter(i -> trackerMap.containsKey(uuid))
                 .take(1)
                 .then(Mono.fromCallable(() -> trackerMap.remove(uuid)));
