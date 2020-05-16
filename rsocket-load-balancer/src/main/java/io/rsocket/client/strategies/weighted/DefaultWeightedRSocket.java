@@ -1,4 +1,4 @@
-package io.rsocket.client.new_classes;
+package io.rsocket.client.strategies.weighted;
 
 
 import io.rsocket.Payload;
@@ -181,16 +181,12 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
                 );
     }
 
-    private <U> LatencySubscriber<U> latencySubscriber(Subscriber<U> child, WeightedRSocket socket) {
-        return new LatencySubscriber<>(child, socket);
-    }
-
     @Override
     public Mono<Payload> requestResponse(Payload payload) {
         return Mono.from(
                 subscriber -> source
                         .requestResponse(payload)
-                        .subscribe(latencySubscriber(subscriber, this))
+                        .subscribe(new LatencySubscriber<>(subscriber, this))
         );
     }
 

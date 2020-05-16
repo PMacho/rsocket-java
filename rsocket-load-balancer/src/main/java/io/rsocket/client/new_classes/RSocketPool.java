@@ -21,21 +21,18 @@ public abstract class RSocketPool<S extends RSocket> {
 
     Logger logger = LoggerFactory.getLogger(RSocketPool.class);
 
+    private static final Duration DEFAULT_MAX_REFRESH_DURATION = Duration.ofSeconds(5);
+
     protected Consumer<List<S>> rSocketListConsumer;
     protected Consumer<Long> updateConsumer;
 
     private final Flux<List<S>> hotRSocketsSource;
 
-    private final AtomicReference<Disposable> state;
+    private AtomicReference<Disposable> poolState = new AtomicReference<>();
     private final DirectProcessor<Void> control = DirectProcessor.create();
 
-    public RSocketPool(
-            Publisher<? extends Collection<RSocket>> rSocketsPublisher,
-            Function<RSocket, S> rSocketMapper,
-            Function<List<S>, Mono<List<S>>> rSocketSortingStrategy
-    ) {
+    public RSocketPool() {
         hotRSocketsSource = createHotRSocketsSource();
-        state = new AtomicReference<>(start(rSocketsPublisher, rSocketMapper, rSocketSortingStrategy));
     }
 
     private Flux<List<S>> createHotRSocketsSource() {
@@ -46,36 +43,41 @@ public abstract class RSocketPool<S extends RSocket> {
                 .takeUntilOther(control);
     }
 
-    public void clean() {
-        logger.info("Cleaning RSocket pool.");
-        control.onComplete();
-        state.get().dispose();
-    }
+    protected abstract void start(Publisher<? extends Collection<RSocket>> rSocketsPublisher);
 
-    public Disposable start(
+    public void start(
             Publisher<? extends Collection<RSocket>> rSocketsPublisher,
             Function<RSocket, S> rSocketMapper,
-            Function<List<S>, Mono<List<S>>> sortRSockets
+            Function<List<S>, Mono<List<S>>> orderRSockets
     ) {
         logger.info("Starting RSocket pool.");
-        return Flux
-                .from(rSocketsPublisher)
-                .distinctUntilChanged()
-                .flatMap(sList(rSocketMapper))
-                .switchMap(rSockets -> Flux
-                        .merge(
-                                Flux.interval(Duration.ZERO, Duration.ofMillis(2000)),
-                                Flux.create(sink -> updateConsumer = sink::next)
-                        )
-                        .flatMap(i -> sortRSockets.apply(rSockets))
-                )
-                .doOnNext(rSockets -> rSocketListConsumer.accept(rSockets))
+        poolState.set(
+                Flux
+                        .from(rSocketsPublisher)
+                        .distinctUntilChanged()
+                        .flatMap(socketList(rSocketMapper))
+//                        .subscribe(rSockets -> rSocketListConsumer.accept(rSockets));
+//        Flux
+//                .from(hotRSocketsSource)
+                .switchMap(periodicAndTriggeredUpdater(orderRSockets))
                 .onErrorContinue((throwable, o) -> logger.error("Received error signal for " + o, throwable))
-                .subscribe();
+                .subscribe(rSockets -> rSocketListConsumer.accept(rSockets))
+        );
     }
 
-    private Function<Collection<RSocket>, Mono<List<S>>> sList(Function<RSocket, S> rSocketMapper) {
+    private Function<Collection<RSocket>, Mono<List<S>>> socketList(Function<RSocket, S> rSocketMapper) {
         return rSockets -> Flux.fromIterable(rSockets).map(rSocketMapper).collectList();
+    }
+
+    private Function<? super List<S>, Publisher<? extends List<S>>> periodicAndTriggeredUpdater(
+            Function<List<S>, Mono<List<S>>> orderRSockets
+    ) {
+        return rSockets -> Flux
+                .merge(
+                        Flux.interval(Duration.ZERO, DEFAULT_MAX_REFRESH_DURATION),
+                        Flux.create(sink -> updateConsumer = sink::next)
+                )
+                .flatMap(i -> orderRSockets.apply(rSockets));
     }
 
     public Mono<S> select() {
@@ -86,8 +88,26 @@ public abstract class RSocketPool<S extends RSocket> {
                 .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)));
     }
 
+    public Flux<S> selectAll() {
+        return Flux
+                .from(hotRSocketsSource)
+                .next()
+                .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)))
+                .flatMapMany(Flux::fromIterable);
+    }
+
     public void update() {
         updateConsumer.accept(0L);
+    }
+
+    public Mono<Void> clean() {
+        logger.info("Cleaning RSocket pool.");
+        return selectAll()
+                .doOnNext(Disposable::dispose)
+                .then(Mono.fromRunnable(() -> {
+                    control.onComplete();
+                    poolState.get().dispose();
+                }));
     }
 
 }
