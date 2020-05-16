@@ -28,8 +28,9 @@ public abstract class RSocketPool<S extends RSocket> {
 
     private final Flux<List<S>> hotRSocketsSource;
 
+    private AtomicReference<Disposable> poolAvailable = new AtomicReference<>();
     private AtomicReference<Disposable> poolState = new AtomicReference<>();
-    private final DirectProcessor<Void> control = DirectProcessor.create();
+    private final DirectProcessor<Void> rSocketSourceControl = DirectProcessor.create();
 
     public RSocketPool() {
         hotRSocketsSource = createHotRSocketsSource();
@@ -40,7 +41,7 @@ public abstract class RSocketPool<S extends RSocket> {
                 .<List<S>>create(sink -> rSocketListConsumer = sink::next)
                 .share()
                 .cache(1)
-                .takeUntilOther(control);
+                .takeUntilOther(rSocketSourceControl);
     }
 
     protected abstract void start(Publisher<? extends Collection<RSocket>> rSocketsPublisher);
@@ -51,33 +52,46 @@ public abstract class RSocketPool<S extends RSocket> {
             Function<List<S>, Mono<List<S>>> orderRSockets
     ) {
         logger.info("Starting RSocket pool.");
-        poolState.set(
-                Flux
-                        .from(rSocketsPublisher)
-                        .distinctUntilChanged()
-                        .flatMap(socketList(rSocketMapper))
-//                        .subscribe(rSockets -> rSocketListConsumer.accept(rSockets));
-//        Flux
-//                .from(hotRSocketsSource)
-                .switchMap(periodicAndTriggeredUpdater(orderRSockets))
-                .onErrorContinue((throwable, o) -> logger.error("Received error signal for " + o, throwable))
-                .subscribe(rSockets -> rSocketListConsumer.accept(rSockets))
-        );
+        poolAvailable.set(availablePoolUpdater(rSocketsPublisher, rSocketMapper));
+        poolState.set(periodicAndTriggeredUpdater(orderRSockets));
+    }
+
+    private Disposable availablePoolUpdater(
+            Publisher<? extends Collection<RSocket>> rSocketsPublisher,
+            Function<RSocket, S> rSocketMapper
+    ) {
+        return Flux
+                .from(rSocketsPublisher)
+                .distinctUntilChanged()
+                .flatMap(socketList(rSocketMapper))
+                .as(this::poolUpdatingDisposable);
     }
 
     private Function<Collection<RSocket>, Mono<List<S>>> socketList(Function<RSocket, S> rSocketMapper) {
         return rSockets -> Flux.fromIterable(rSockets).map(rSocketMapper).collectList();
     }
 
-    private Function<? super List<S>, Publisher<? extends List<S>>> periodicAndTriggeredUpdater(
+    private Disposable periodicAndTriggeredUpdater(
             Function<List<S>, Mono<List<S>>> orderRSockets
     ) {
-        return rSockets -> Flux
+        return Flux
                 .merge(
                         Flux.interval(Duration.ZERO, DEFAULT_MAX_REFRESH_DURATION),
                         Flux.create(sink -> updateConsumer = sink::next)
                 )
-                .flatMap(i -> orderRSockets.apply(rSockets));
+                .flatMap(i -> snapshot())
+                .flatMap(orderRSockets)
+                .as(this::poolUpdatingDisposable);
+    }
+
+    private Disposable poolUpdatingDisposable(Flux<List<S>> flux) {
+        return flux
+                .onErrorContinue((throwable, o) -> logger.error("Received error signal for " + o, throwable))
+                .subscribe(rSockets -> rSocketListConsumer.accept(rSockets));
+    }
+
+    private Mono<List<S>> snapshot() {
+        return Flux.from(hotRSocketsSource).next();
     }
 
     public Mono<S> select() {
@@ -92,8 +106,8 @@ public abstract class RSocketPool<S extends RSocket> {
         return Flux
                 .from(hotRSocketsSource)
                 .next()
-                .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)))
-                .flatMapMany(Flux::fromIterable);
+                .flatMapMany(Flux::fromIterable)
+                .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)));
     }
 
     public void update() {
@@ -105,7 +119,8 @@ public abstract class RSocketPool<S extends RSocket> {
         return selectAll()
                 .doOnNext(Disposable::dispose)
                 .then(Mono.fromRunnable(() -> {
-                    control.onComplete();
+                    rSocketSourceControl.onComplete();
+                    poolAvailable.get().dispose();
                     poolState.get().dispose();
                 }));
     }
