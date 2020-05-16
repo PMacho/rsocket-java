@@ -1,5 +1,6 @@
-package io.rsocket.client.new_classes;
+package io.rsocket.client.strategies.weighted;
 
+import io.rsocket.client.basic.LockedOperations;
 import io.rsocket.stat.FrugalQuantile;
 import reactor.core.publisher.Mono;
 
