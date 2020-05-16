@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.Disposable;
 import reactor.core.publisher.ConnectableFlux;
+import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
@@ -29,9 +30,8 @@ public class WeightedRSocketPool implements RSocketPool {
 
     private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics = new WeightedRSocketPoolStatistics();
 
-    private Consumer cleaner;
-    private AtomicReference<Disposable> state;
-    private Publisher control;
+    private final AtomicReference<Disposable> state;
+    private final DirectProcessor<Void> control = DirectProcessor.create();
 
     public WeightedRSocketPool(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
         hotRSocketsSource = createHotRSocketsSource();
@@ -42,12 +42,13 @@ public class WeightedRSocketPool implements RSocketPool {
         return Flux
                 .<List<WeightedRSocket>>create(sink -> weightedRSocketListConsumer = sink::next)
                 .share()
-                .cache(1);
+                .cache(1)
+                .takeUntilOther(control);
     }
 
-    public void clean(){
-        hotRSocketsSource.cancelOn()
-        control = Mono.empty();
+    public void clean() {
+        control.onComplete();
+        state.get().dispose();
     }
 
     public Disposable start(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
