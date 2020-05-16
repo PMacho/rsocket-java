@@ -1,4 +1,4 @@
-package io.rsocket.client.strategies.weighted;
+package io.rsocket.client.strategies.weighted.pool;
 
 import io.rsocket.client.basic.LockedOperations;
 import io.rsocket.stat.FrugalQuantile;
@@ -55,7 +55,7 @@ public class WeightedRSocketPoolStatistics extends LockedOperations {
         }
     }
 
-    static class Quantiles {
+    public static class Quantiles {
         private final double lowerQuantile;
         private final double higherQuantile;
 

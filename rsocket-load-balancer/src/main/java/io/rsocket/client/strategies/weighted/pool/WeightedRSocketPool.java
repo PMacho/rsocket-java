@@ -1,7 +1,9 @@
-package io.rsocket.client.strategies.weighted;
+package io.rsocket.client.strategies.weighted.pool;
 
 import io.rsocket.RSocket;
 import io.rsocket.client.new_classes.RSocketPool;
+import io.rsocket.client.strategies.weighted.socket.DefaultWeightedRSocket;
+import io.rsocket.client.strategies.weighted.socket.WeightedRSocket;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -27,7 +29,7 @@ public class WeightedRSocketPool extends RSocketPool<WeightedRSocket> {
         return new DefaultWeightedRSocket(weightedRSocketPoolStatistics, rSocket);
     }
 
-    public Mono<List<WeightedRSocket>> sortWeightedRSockets(Collection<WeightedRSocket> weightedRSockets) {
+    public Mono<List<WeightedRSocket>> sortWeightedRSockets(List<WeightedRSocket> weightedRSockets) {
         return Flux
                 .fromIterable(weightedRSockets)
                 .flatMap(weightedRSocket -> weightedRSocket
