@@ -1,7 +1,7 @@
 package io.rsocket.client.strategies.weighted.pool;
 
 import io.rsocket.RSocket;
-import io.rsocket.client.new_classes.RSocketPool;
+import io.rsocket.client.new_classes.RSocketPoolStatic;
 import io.rsocket.client.strategies.weighted.socket.DefaultWeightedRSocket;
 import io.rsocket.client.strategies.weighted.socket.WeightedRSocket;
 import org.reactivestreams.Publisher;
@@ -12,7 +12,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
-public class WeightedRSocketPool extends RSocketPool<WeightedRSocket> {
+public class WeightedRSocketPool extends RSocketPoolStatic<WeightedRSocket> {
 
     private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics = new WeightedRSocketPoolStatistics();
 

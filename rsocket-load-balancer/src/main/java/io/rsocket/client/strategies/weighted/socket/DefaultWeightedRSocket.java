@@ -33,7 +33,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
 
     private final double exponentialFactor;
 
-    DefaultWeightedRSocket(
+    public DefaultWeightedRSocket(
             WeightedRSocketPoolStatistics weightedRSocketPoolStatistics,
             RSocket rSocket,
             Integer inactivityFactor
@@ -53,7 +53,7 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
         logger.debug("Creating WeightedRSocket {} for RSocket {}", DefaultWeightedRSocket.this, rSocket);
     }
 
-    DefaultWeightedRSocket(
+    public DefaultWeightedRSocket(
             WeightedRSocketPoolStatistics weightedRSocketPoolStatistics,
             RSocket rSocket
     ) {
