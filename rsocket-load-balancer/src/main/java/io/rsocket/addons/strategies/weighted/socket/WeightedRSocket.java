@@ -1,4 +1,4 @@
-package io.rsocket.client.strategies.weighted.socket;
+package io.rsocket.addons.strategies.weighted.socket;
 
 import io.rsocket.RSocket;
 import reactor.core.publisher.Mono;

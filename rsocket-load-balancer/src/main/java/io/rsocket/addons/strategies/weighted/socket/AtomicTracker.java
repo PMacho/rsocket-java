@@ -1,14 +1,11 @@
-package io.rsocket.client.strategies.weighted.socket;
+package io.rsocket.addons.strategies.weighted.socket;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 public class AtomicTracker {

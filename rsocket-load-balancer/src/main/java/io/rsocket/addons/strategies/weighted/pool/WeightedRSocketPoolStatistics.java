@@ -1,4 +1,4 @@
-package io.rsocket.client.strategies.weighted.pool;
+package io.rsocket.addons.strategies.weighted.pool;
 
 import io.rsocket.client.basic.LockedOperations;
 import io.rsocket.stat.FrugalQuantile;

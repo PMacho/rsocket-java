@@ -1,9 +1,9 @@
-package io.rsocket.client.strategies.weighted.pool;
+package io.rsocket.addons.strategies.weighted.pool;
 
 import io.rsocket.RSocket;
-import io.rsocket.client.new_classes.RSocketPoolStatic;
-import io.rsocket.client.strategies.weighted.socket.DefaultWeightedRSocket;
-import io.rsocket.client.strategies.weighted.socket.WeightedRSocket;
+import io.rsocket.addons.pools.RSocketPoolStatic;
+import io.rsocket.addons.strategies.weighted.socket.DefaultWeightedRSocket;
+import io.rsocket.addons.strategies.weighted.socket.WeightedRSocket;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;

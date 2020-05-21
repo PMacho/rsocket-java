@@ -1,7 +1,7 @@
-package io.rsocket.client.new_classes;
+package io.rsocket.addons.pools;
 
 import io.rsocket.RSocket;
-import io.rsocket.core.RSocketConnector;
+import io.rsocket.addons.RSocketPool;
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +9,6 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -19,7 +18,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPool<S> {
+public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPool, PoolOperations {
 
     Logger logger = LoggerFactory.getLogger(RSocketPoolElastic.class);
 
@@ -35,7 +34,12 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     private AtomicInteger aperture = new AtomicInteger(DEFAULT_MIN_APERTURE);
 
 
-    public RSocketPoolElastic(RSocketPoolStatic<S> rSocketPoolStatic) {
+    public RSocketPoolElastic(
+            Publisher<? extends Collection<RSocket>> rSocketsPublisher,
+            Function<Mono<RSocket>, S> rSocketMapper,
+            Function<List<S>, Mono<List<S>>> orderRSockets,
+            RSocketPoolStatic<S> rSocketPoolStatic
+    ) {
         this.rSocketPoolStatic = rSocketPoolStatic;
         availableRSocketSuppliers = createHotRSocketSuppliersSource();
     }
@@ -78,14 +82,10 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     }
 
     @Override
-    public Mono<S> select() {
+    public RSocket select() {
         return rSocketPoolStatic.select();
     }
 
-    @Override
-    public Flux<S> selectAll() {
-        return rSocketPoolStatic.selectAll();
-    }
 
     @Override
     public void update() {

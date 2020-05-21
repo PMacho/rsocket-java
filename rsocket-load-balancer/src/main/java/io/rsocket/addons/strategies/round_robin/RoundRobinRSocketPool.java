@@ -1,7 +1,7 @@
-package io.rsocket.client.strategies.round_robin;
+package io.rsocket.addons.strategies.round_robin;
 
 import io.rsocket.RSocket;
-import io.rsocket.client.new_classes.RSocketPoolStatic;
+import io.rsocket.addons.pools.RSocketPoolStatic;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 
@@ -12,9 +12,9 @@ import java.util.function.Function;
 
 public class RoundRobinRSocketPool extends RSocketPoolStatic<RSocket> {
 
-    @Override
-    public void start(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
-        start(rSocketsPublisher, Function.identity(), this::circle);
+
+    public RoundRobinRSocketPool(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
+        super(rSocketsPublisher, Function.identity(), this::circle);
     }
 
     public Mono<List<RSocket>> circle(List<RSocket> rSockets) {
