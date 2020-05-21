@@ -1,4 +1,4 @@
-package io.rsocket.client.strategies.weighted.socket;
+package io.rsocket.addons.strategies.weighted.socket;
 
 import io.rsocket.client.basic.LockedOperations;
 import io.rsocket.stat.AtomicEwma;
