@@ -12,12 +12,11 @@ import java.util.function.Function;
 
 public class RoundRobinRSocketPool extends RSocketPoolStatic<RSocket> {
 
-
     public RoundRobinRSocketPool(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
-        super(rSocketsPublisher, Function.identity(), this::circle);
+        super(rSocketsPublisher, Function.identity(), RoundRobinRSocketPool::circle);
     }
 
-    public Mono<List<RSocket>> circle(List<RSocket> rSockets) {
+    private static Mono<List<RSocket>> circle(List<RSocket> rSockets) {
         LinkedList<RSocket> linkedList = new LinkedList<>(rSockets);
 
         linkedList.add(linkedList.poll());
