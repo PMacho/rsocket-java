@@ -5,5 +5,5 @@ import reactor.core.Disposable;
 
 public interface RSocketPool extends Disposable {
 
-  RSocket select();
+    RSocket select();
 }
