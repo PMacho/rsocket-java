@@ -1,8 +1,9 @@
-package io.rsocket.addons.strategies.weighted.socket;
+package io.rsocket.addons.strategies.parallel.weighted;
 
-import io.rsocket.addons.strategies.weighted.basic.LockedOperations;
-import io.rsocket.addons.strategies.weighted.statistics.AtomicEwma;
-import io.rsocket.addons.strategies.weighted.statistics.WeightingStatisticsUtil;
+import io.rsocket.addons.strategies.util.AtomicTracker;
+import io.rsocket.addons.strategies.util.LockedOperations;
+import io.rsocket.addons.strategies.parallel.weighted.statistics.AtomicEwma;
+import io.rsocket.addons.strategies.parallel.weighted.statistics.WeightingStatisticsUtil;
 import io.rsocket.stat.Median;
 import io.rsocket.util.Clock;
 

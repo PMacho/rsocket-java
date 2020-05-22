@@ -1,4 +1,4 @@
-package io.rsocket.addons.strategies.weighted.socket;
+package io.rsocket.addons.strategies.util;
 
 import java.time.Duration;
 import java.util.UUID;

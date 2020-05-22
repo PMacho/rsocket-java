@@ -1,4 +1,4 @@
-package io.rsocket.addons.strategies.weighted.basic;
+package io.rsocket.addons.strategies.basic;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.DoubleBinaryOperator;

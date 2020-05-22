@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-package io.rsocket.addons.strategies.weighted.statistics;
+package io.rsocket.addons.strategies.parallel.weighted.statistics;
 
-import io.rsocket.addons.strategies.weighted.basic.AtomicDouble;
+import io.rsocket.addons.strategies.basic.AtomicDouble;
 import io.rsocket.util.Clock;
 
 import java.util.concurrent.TimeUnit;

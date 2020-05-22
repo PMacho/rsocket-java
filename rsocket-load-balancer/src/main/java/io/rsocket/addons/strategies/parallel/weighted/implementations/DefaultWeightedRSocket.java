@@ -1,9 +1,11 @@
-package io.rsocket.addons.strategies.weighted.socket;
+package io.rsocket.addons.strategies.parallel.weighted.implementations;
 
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
-import io.rsocket.addons.strategies.weighted.pool.WeightedRSocketPoolStatistics;
-import io.rsocket.addons.strategies.weighted.statistics.WeightingStatisticsUtil;
+import io.rsocket.addons.strategies.parallel.weighted.ConcurrentSubscriptionTracker;
+import io.rsocket.addons.strategies.parallel.weighted.WeightedRSocket;
+import io.rsocket.addons.strategies.parallel.weighted.statistics.WeightedRSocketPoolStatistics;
+import io.rsocket.addons.strategies.parallel.weighted.statistics.WeightingStatisticsUtil;
 import io.rsocket.client.TimeoutException;
 import io.rsocket.client.TransportException;
 import io.rsocket.util.RSocketProxy;
@@ -42,7 +44,8 @@ public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSoc
         super(rSocket);
 
         final Consumer<Double> updateQuantiles = weightedRSocketPoolStatistics::updateQuantiles;
-        this.concurrentSubscriptionTracker = Optional.ofNullable(inactivityFactor)
+        this.concurrentSubscriptionTracker = Optional
+                .ofNullable(inactivityFactor)
                 .map(factor -> new ConcurrentSubscriptionTracker(updateQuantiles, factor))
                 .orElseGet(() -> new ConcurrentSubscriptionTracker(updateQuantiles));
         this.weightedRSocketPoolStatistics = weightedRSocketPoolStatistics;
