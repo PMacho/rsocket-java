@@ -8,7 +8,6 @@ import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.Disposable;
-import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
@@ -36,7 +35,7 @@ public abstract class RSocketPoolParallel<S extends RSocket> implements RSocketP
     private AtomicReference<Disposable> poolNext = new AtomicReference<>();
     private AtomicReference<Disposable> poolAvailable = new AtomicReference<>();
     private AtomicReference<Disposable> poolState = new AtomicReference<>();
-    private final DirectProcessor<Void> rSocketSourceControl = DirectProcessor.create();
+//    private final DirectProcessor<Void> rSocketSourceControl = DirectProcessor.create();
 
     public RSocketPoolParallel(Publisher<? extends Collection<? extends RSocket>> rSocketsPublisher) {
         logger.info("Starting parallel RSocket pool.");
@@ -53,9 +52,7 @@ public abstract class RSocketPoolParallel<S extends RSocket> implements RSocketP
     private Flux<List<S>> activeRSockets() {
         return Flux
                 .<List<S>>create(sink -> rSocketListConsumer = sink::next)
-                .share()
-                .cache(1)
-                .takeUntilOther(rSocketSourceControl);
+                .as(this::hotSource);
     }
 
     private Disposable maintainNext() {
@@ -113,7 +110,7 @@ public abstract class RSocketPoolParallel<S extends RSocket> implements RSocketP
                 .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)))
                 .doOnNext(Disposable::dispose)
                 .then(Mono.fromRunnable(() -> {
-                    rSocketSourceControl.onComplete();
+                    sourceControl.onComplete();
                     poolNext.get().dispose();
                     poolAvailable.get().dispose();
                     poolState.get().dispose();
