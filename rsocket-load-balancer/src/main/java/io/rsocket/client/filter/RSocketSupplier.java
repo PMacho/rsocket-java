@@ -23,9 +23,6 @@ import io.rsocket.RSocket;
 import io.rsocket.stat.Ewma;
 import io.rsocket.util.Clock;
 import io.rsocket.util.RSocketProxy;
-
-import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
@@ -86,7 +83,7 @@ public class RSocketSupplier implements Availability, Supplier<Mono<RSocket>>, C
   public Mono<RSocket> get() {
     return rSocketSupplier
         .get()
-            // fixme: really needed here and down there later?
+        // fixme: really needed here and down there later?
         .doOnNext(o -> updateErrorPercentage(1.0))
         .doOnError(t -> updateErrorPercentage(0.0))
         .map(AvailabilityAwareRSocketProxy::new);
