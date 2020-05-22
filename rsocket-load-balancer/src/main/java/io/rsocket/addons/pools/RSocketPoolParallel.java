@@ -20,9 +20,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public abstract class RSocketPoolStatic<S extends RSocket> implements RSocketPool, PoolOperations {
+public abstract class RSocketPoolParallel<S extends RSocket> implements RSocketPool, PoolOperations {
 
-    Logger logger = LoggerFactory.getLogger(RSocketPoolStatic.class);
+    Logger logger = LoggerFactory.getLogger(RSocketPoolParallel.class);
 
     private static final Duration DEFAULT_MAX_REFRESH_DURATION = Duration.ofSeconds(5);
 
@@ -38,17 +38,17 @@ public abstract class RSocketPoolStatic<S extends RSocket> implements RSocketPoo
     private AtomicReference<Disposable> poolState = new AtomicReference<>();
     private final DirectProcessor<Void> rSocketSourceControl = DirectProcessor.create();
 
-    public RSocketPoolStatic(
-            Publisher<? extends Collection<RSocket>> rSocketsPublisher,
-            Function<RSocket, S> rSocketMapper,
-            Function<List<S>, Mono<List<S>>> orderRSockets
-    ) {
-        logger.info("Starting RSocket pool.");
+    public RSocketPoolParallel(Publisher<? extends Collection<? extends RSocket>> rSocketsPublisher) {
+        logger.info("Starting parallel RSocket pool.");
         activeRSockets = activeRSockets();
         poolNext.set(maintainNext());
-        poolAvailable.set(availablePoolUpdater(rSocketsPublisher, rSocketMapper));
-        poolState.set(periodicAndTriggeredUpdater(orderRSockets));
+        poolAvailable.set(availablePoolUpdater(rSocketsPublisher));
+        poolState.set(periodicAndTriggeredUpdater());
     }
+
+    protected abstract S rSocketMapper(RSocket rSocket);
+
+    protected abstract Mono<List<S>> orderRSockets(List<S> sList);
 
     private Flux<List<S>> activeRSockets() {
         return Flux
@@ -65,35 +65,30 @@ public abstract class RSocketPoolStatic<S extends RSocket> implements RSocketPoo
                 .subscribe(next::set);
     }
 
-    private Disposable availablePoolUpdater(
-            Publisher<? extends Collection<RSocket>> rSocketsPublisher,
-            Function<RSocket, S> rSocketMapper
-    ) {
+    private Disposable availablePoolUpdater(Publisher<? extends Collection<? extends RSocket>> rSocketsPublisher) {
         return Flux
                 .from(rSocketsPublisher)
                 .distinctUntilChanged()
-                .flatMap(socketList(rSocketMapper))
+                .flatMap(socketList())
                 .as(this::poolUpdater);
     }
 
-    private Function<Collection<RSocket>, Mono<List<S>>> socketList(Function<RSocket, S> rSocketMapper) {
+    private Function<Collection<? extends RSocket>, Mono<List<S>>> socketList() {
         return rSockets -> Flux
                 .fromIterable(rSockets)
                 .map(PooledRSocket::new)
-                .map(rSocketMapper)
+                .map(this::rSocketMapper)
                 .collectList();
     }
 
-    private Disposable periodicAndTriggeredUpdater(
-            Function<List<S>, Mono<List<S>>> orderRSockets
-    ) {
+    private Disposable periodicAndTriggeredUpdater() {
         return Flux
                 .merge(
                         Flux.interval(Duration.ZERO, DEFAULT_MAX_REFRESH_DURATION),
                         Flux.create(sink -> updateConsumer = sink::next)
                 )
                 .flatMap(i -> snapshot(activeRSockets))
-                .flatMap(orderRSockets)
+                .flatMap(this::orderRSockets)
                 .as(this::poolUpdater);
     }
 
@@ -127,7 +122,7 @@ public abstract class RSocketPoolStatic<S extends RSocket> implements RSocketPoo
 
     @Override
     // todo:
-    public void dispose(){
+    public void dispose() {
 
     }
 
