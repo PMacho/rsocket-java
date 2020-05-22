@@ -1,6 +1,6 @@
-package io.rsocket.addons.strategies.weighted.pool;
+package io.rsocket.addons.strategies.parallel.weighted.statistics;
 
-import io.rsocket.addons.strategies.weighted.basic.LockedOperations;
+import io.rsocket.addons.strategies.util.LockedOperations;
 import io.rsocket.stat.FrugalQuantile;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -14,7 +14,7 @@ public class WeightedRSocketPoolStatistics extends LockedOperations {
 
     private final AtomicReference<QuantilesWrapper> quantilesReference;
 
-    WeightedRSocketPoolStatistics() {
+    public WeightedRSocketPoolStatistics() {
         super();
         this.quantilesReference = new AtomicReference<>(
                 new QuantilesWrapper(DEFAULT_LOWER_QUANTILE, DEFAULT_HIGHER_QUANTILE)

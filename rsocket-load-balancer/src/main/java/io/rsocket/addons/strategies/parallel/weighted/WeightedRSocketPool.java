@@ -1,9 +1,9 @@
-package io.rsocket.addons.strategies.weighted.pool;
+package io.rsocket.addons.strategies.parallel.weighted;
 
 import io.rsocket.RSocket;
 import io.rsocket.addons.pools.RSocketPoolParallel;
-import io.rsocket.addons.strategies.weighted.socket.DefaultWeightedRSocket;
-import io.rsocket.addons.strategies.weighted.socket.WeightedRSocket;
+import io.rsocket.addons.strategies.parallel.weighted.statistics.WeightedRSocketPoolStatistics;
+import io.rsocket.addons.strategies.parallel.weighted.implementations.DefaultWeightedRSocket;
 
 import java.util.Collection;
 import java.util.Comparator;

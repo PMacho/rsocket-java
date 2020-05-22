@@ -47,17 +47,20 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     protected abstract S rSocketMapper(RSocket rSocket);
 
     protected abstract RSocketPoolParallel<S> rSocketPoolParallelConstructor(
-            Publisher<? extends Collection<? extends RSocket>> publisher);
+            Publisher<? extends Collection<? extends RSocket>> publisher
+    );
 
     private Flux<List<ResolvingRSocket>> createHotRSocketSuppliersSource() {
-        return Flux.<List<ResolvingRSocket>>create(sink -> rSocketSupplierListConsumer = sink::next)
+        return Flux
+                .<List<ResolvingRSocket>>create(sink -> rSocketSupplierListConsumer = sink::next)
                 .as(this::hotSource);
     }
 
     private Disposable availablePoolUpdater(
             Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher
     ) {
-        return Flux.from(rSocketsPublisher)
+        return Flux
+                .from(rSocketsPublisher)
                 .distinctUntilChanged()
                 .map(c -> (List<Mono<? extends RSocket>>) new ArrayList<>(c))
                 .flatMap(list -> Flux.fromIterable(list).map(ResolvingRSocket::new).collectList())
@@ -65,7 +68,8 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     }
 
     private Flux<List<S>> activeRSocketPool() {
-        return Flux.create(sink -> updateConsumer = sink::next)
+        return Flux
+                .create(sink -> updateConsumer = sink::next)
                 .flatMap(i -> snapshot(availableRSocketSuppliers)
                         .flatMapMany(Flux::fromIterable)
                         .take(aperture.get())

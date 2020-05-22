@@ -1,4 +1,4 @@
-package io.rsocket.addons.strategies.weighted.statistics;
+package io.rsocket.addons.strategies.parallel.weighted.statistics;
 
 import io.rsocket.stat.Median;
 

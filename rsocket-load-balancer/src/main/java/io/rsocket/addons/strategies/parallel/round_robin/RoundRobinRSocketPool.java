@@ -1,4 +1,4 @@
-package io.rsocket.addons.strategies.round_robin;
+package io.rsocket.addons.strategies.parallel.round_robin;
 
 import io.rsocket.RSocket;
 import io.rsocket.addons.pools.RSocketPoolParallel;
