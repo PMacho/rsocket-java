@@ -1,7 +1,7 @@
 package io.rsocket.addons.strategies.weighted.pool;
 
 import io.rsocket.RSocket;
-import io.rsocket.addons.pools.RSocketPoolStatic;
+import io.rsocket.addons.pools.RSocketPoolParallel;
 import io.rsocket.addons.strategies.weighted.socket.DefaultWeightedRSocket;
 import io.rsocket.addons.strategies.weighted.socket.WeightedRSocket;
 import org.reactivestreams.Publisher;
@@ -12,24 +12,21 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
-public class WeightedRSocketPool extends RSocketPoolStatic<WeightedRSocket> {
+public class WeightedRSocketPool extends RSocketPoolParallel<WeightedRSocket> {
 
     private final WeightedRSocketPoolStatistics weightedRSocketPoolStatistics = new WeightedRSocketPoolStatistics();
 
-    public WeightedRSocketPool() {
-        super();
+    public WeightedRSocketPool(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
+        super(rSocketsPublisher);
     }
 
     @Override
-    public void start(Publisher<? extends Collection<RSocket>> rSocketsPublisher) {
-        start(rSocketsPublisher, this::weightedRSocket, this::sortWeightedRSockets);
-    }
-
-    private WeightedRSocket weightedRSocket(RSocket rSocket) {
+    protected WeightedRSocket rSocketMapper(RSocket rSocket) {
         return new DefaultWeightedRSocket(weightedRSocketPoolStatistics, rSocket);
     }
 
-    public Mono<List<WeightedRSocket>> sortWeightedRSockets(List<WeightedRSocket> weightedRSockets) {
+    @Override
+    protected Mono<List<WeightedRSocket>> orderRSockets(List<WeightedRSocket> weightedRSockets) {
         return Flux
                 .fromIterable(weightedRSockets)
                 .flatMap(weightedRSocket -> weightedRSocket

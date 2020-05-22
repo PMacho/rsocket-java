@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPool, PoolOperations {
 
@@ -28,23 +27,23 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     protected Consumer<Long> updateConsumer;
 
     private final Flux<List<ResolvingRSocket>> availableRSocketSuppliers;
-    private final RSocketPoolStatic<S> rSocketPoolStatic;
+    private final RSocketPoolParallel<S> rSocketPoolParallel;
 
     private AtomicReference<Disposable> poolAvailable = new AtomicReference<>();
     private AtomicInteger aperture = new AtomicInteger(DEFAULT_MIN_APERTURE);
 
-    public RSocketPoolElastic(
-            Publisher<? extends Collection<Mono<RSocket>>> rSocketsPublisher,
-            Function<RSocket, S> rSocketMapper,
-            Function<Publisher<? extends Collection<RSocket>>, RSocketPoolStatic<S>> rSocketPoolStaticConstructor
-    ) {
+    public RSocketPoolElastic(Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher) {
         logger.info("Starting elastic RSocket pool.");
         availableRSocketSuppliers = createHotRSocketSuppliersSource();
         poolAvailable.set(availablePoolUpdater(rSocketsPublisher));
-        rSocketPoolStatic = rSocketPoolStaticConstructor.apply(
-                (Publisher<? extends Collection<RSocket>>) activeRSocketPool(rSocketMapper)
-        );
+        rSocketPoolParallel = rSocketPoolParallelConstructor(activeRSocketPool());
     }
+
+    protected abstract S rSocketMapper(RSocket rSocket);
+
+    protected abstract RSocketPoolParallel<S> rSocketPoolParallelConstructor(
+            Publisher<? extends Collection<? extends RSocket>> publisher
+    );
 
     private Flux<List<ResolvingRSocket>> createHotRSocketSuppliersSource() {
         return Flux
@@ -52,16 +51,16 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
                 .as(this::hotSource);
     }
 
-    private Disposable availablePoolUpdater(Publisher<? extends Collection<Mono<RSocket>>> rSocketsPublisher) {
+    private Disposable availablePoolUpdater(Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher) {
         return Flux
                 .from(rSocketsPublisher)
                 .distinctUntilChanged()
-                .map(c -> (List<Mono<RSocket>>) new ArrayList<>(c))
+                .map(c -> (List<Mono<? extends RSocket>>) new ArrayList<>(c))
                 .flatMap(list -> Flux.fromIterable(list).map(ResolvingRSocket::new).collectList())
                 .as(flux -> poolUpdater(flux, rSocketSupplierListConsumer));
     }
 
-    private Flux<List<S>> activeRSocketPool(Function<RSocket, S> rSocketMapper) {
+    private Flux<List<S>> activeRSocketPool() {
         return Flux
                 .create(sink -> updateConsumer = sink::next)
                 .flatMap(i -> snapshot(availableRSocketSuppliers)
@@ -70,12 +69,12 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
                         .collectList()
                 )
                 .distinctUntilChanged()
-                .flatMap(list -> Flux.fromIterable(list).map(rSocketMapper).collectList());
+                .flatMap(list -> Flux.fromIterable(list).map(this::rSocketMapper).collectList());
     }
 
     @Override
     public RSocket select() {
-        return rSocketPoolStatic.select();
+        return rSocketPoolParallel.select();
     }
 
     public void update() {
@@ -85,7 +84,7 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     @Override
     public Mono<Void> onClose() {
         logger.info("Cleaning RSocket pool.");
-        return rSocketPoolStatic
+        return rSocketPoolParallel
                 .onClose()
                 .then(Mono.fromRunnable(() -> poolAvailable.get().dispose()));
     }
