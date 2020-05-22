@@ -86,7 +86,10 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
         logger.info("Cleaning RSocket pool.");
         return rSocketPoolParallel
                 .onClose()
-                .then(Mono.fromRunnable(() -> poolAvailable.get().dispose()));
+                .then(Mono.fromRunnable(() -> {
+                    sourceControl.onComplete();
+                    poolAvailable.get().dispose();
+                }));
     }
 
 }
