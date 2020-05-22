@@ -18,7 +18,6 @@ package io.rsocket.stat;
 
 import io.rsocket.client.basic.AtomicDouble;
 import io.rsocket.util.Clock;
-
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,49 +29,50 @@ import java.util.concurrent.TimeUnit;
  * equal to (200 - 100)/2 = 150 (half of the distance between the new and the old value)
  */
 public class AtomicEwma {
-    private final long tau;
-    private AtomicDouble value;
+  private final long tau;
+  private AtomicDouble value;
 
-    public AtomicEwma(long halfLife, TimeUnit unit, double initialValue) {
-        this.tau = Clock.unit().convert((long) (halfLife / Math.log(2)), unit);
-        value = new AtomicDouble(initialValue);
-    }
+  public AtomicEwma(long halfLife, TimeUnit unit, double initialValue) {
+    this.tau = Clock.unit().convert((long) (halfLife / Math.log(2)), unit);
+    value = new AtomicDouble(initialValue);
+  }
 
-    public void insert(long elapsed) {
-        insert(elapsed, elapsed);
-    }
+  public void insert(long elapsed) {
+    insert(elapsed, elapsed);
+  }
 
-    public void insert(long observation, long elapsed) {
-        value.updateAndGet(current -> {
-            double w = 1. / Math.exp(((double) elapsed) / tau);
-            return w * current + (1.0 - w) * observation;
+  public void insert(long observation, long elapsed) {
+    value.updateAndGet(
+        current -> {
+          double w = 1. / Math.exp(((double) elapsed) / tau);
+          return w * current + (1.0 - w) * observation;
         });
-    }
+  }
 
-//    public synchronized void insert() {
-//        long now = Clock.now();
-//        insert(Math.max(0, now - stamp));
-//    }
-//
-//    public synchronized void insert(double x) {
-//        long now = Clock.now();
-//        double elapsed = Math.max(0, now - stamp);
-//        stamp = now;
-//
-//        double w = Math.exp(-elapsed / tau);
-//        ewma = w * ewma + (1.0 - w) * x;
-//    }
+  //    public synchronized void insert() {
+  //        long now = Clock.now();
+  //        insert(Math.max(0, now - stamp));
+  //    }
+  //
+  //    public synchronized void insert(double x) {
+  //        long now = Clock.now();
+  //        double elapsed = Math.max(0, now - stamp);
+  //        stamp = now;
+  //
+  //        double w = Math.exp(-elapsed / tau);
+  //        ewma = w * ewma + (1.0 - w) * x;
+  //    }
 
-    public synchronized void reset(double value) {
-        this.value.set(value);
-    }
+  public synchronized void reset(double value) {
+    this.value.set(value);
+  }
 
-    public double value() {
-        return value.get();
-    }
+  public double value() {
+    return value.get();
+  }
 
-    @Override
-    public String toString() {
-        return "Ewma(value=" + value + ")";
-    }
+  @Override
+  public String toString() {
+    return "Ewma(value=" + value + ")";
+  }
 }

@@ -5,6 +5,5 @@ import reactor.core.publisher.Mono;
 
 public interface WeightedRSocket extends RSocket {
 
-    Mono<Double> algorithmicWeight();
-
+  Mono<Double> algorithmicWeight();
 }

@@ -6,5 +6,4 @@ import io.rsocket.RSocket;
 public interface RSocketPool extends Closeable {
 
   RSocket select();
-
 }

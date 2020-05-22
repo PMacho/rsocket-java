@@ -17,7 +17,6 @@
 package io.rsocket.stat;
 
 import io.rsocket.util.Clock;
-
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -29,41 +28,41 @@ import java.util.concurrent.TimeUnit;
  * equal to (200 - 100)/2 = 150 (half of the distance between the new and the old value)
  */
 public class Ewma {
-    private final long tau;
-    private volatile long stamp;
-    private volatile double ewma;
+  private final long tau;
+  private volatile long stamp;
+  private volatile double ewma;
 
-    public Ewma(long halfLife, TimeUnit unit, double initialValue) {
-        this.tau = Clock.unit().convert((long) (halfLife / Math.log(2)), unit);
-        stamp = 0L;
-        ewma = initialValue;
-    }
+  public Ewma(long halfLife, TimeUnit unit, double initialValue) {
+    this.tau = Clock.unit().convert((long) (halfLife / Math.log(2)), unit);
+    stamp = 0L;
+    ewma = initialValue;
+  }
 
-    public synchronized void insert() {
-        long now = Clock.now();
-        insert(Math.max(0, now - stamp));
-    }
+  public synchronized void insert() {
+    long now = Clock.now();
+    insert(Math.max(0, now - stamp));
+  }
 
-    public synchronized void insert(double x) {
-        long now = Clock.now();
-        double elapsed = Math.max(0, now - stamp);
-        stamp = now;
+  public synchronized void insert(double x) {
+    long now = Clock.now();
+    double elapsed = Math.max(0, now - stamp);
+    stamp = now;
 
-        double w = Math.exp(-elapsed / tau);
-        ewma = w * ewma + (1.0 - w) * x;
-    }
+    double w = Math.exp(-elapsed / tau);
+    ewma = w * ewma + (1.0 - w) * x;
+  }
 
-    public synchronized void reset(double value) {
-        stamp = 0L;
-        ewma = value;
-    }
+  public synchronized void reset(double value) {
+    stamp = 0L;
+    ewma = value;
+  }
 
-    public double value() {
-        return ewma;
-    }
+  public double value() {
+    return ewma;
+  }
 
-    @Override
-    public String toString() {
-        return "Ewma(value=" + ewma + ", age=" + (Clock.now() - stamp) + ")";
-    }
+  @Override
+  public String toString() {
+    return "Ewma(value=" + ewma + ", age=" + (Clock.now() - stamp) + ")";
+  }
 }
