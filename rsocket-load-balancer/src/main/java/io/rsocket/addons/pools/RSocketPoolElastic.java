@@ -3,12 +3,14 @@ package io.rsocket.addons.pools;
 import io.rsocket.RSocket;
 import io.rsocket.addons.RSocketPool;
 import io.rsocket.addons.ResolvingRSocket;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,77 +20,77 @@ import reactor.core.publisher.Mono;
 
 public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPool, PoolOperations {
 
-  Logger logger = LoggerFactory.getLogger(RSocketPoolElastic.class);
+    Logger logger = LoggerFactory.getLogger(RSocketPoolElastic.class);
 
-  public static final int DEFAULT_MIN_APERTURE = 3;
+    public static final int DEFAULT_MIN_APERTURE = 3;
 
-  protected Consumer<List<ResolvingRSocket>> rSocketSupplierListConsumer;
-  protected Consumer<Long> updateConsumer;
+    protected Consumer<List<ResolvingRSocket>> rSocketSupplierListConsumer;
+    protected Consumer<Long> updateConsumer;
 
-  private final Flux<List<ResolvingRSocket>> availableRSocketSuppliers;
-  private final RSocketPoolParallel<S> rSocketPoolParallel;
+    private final Flux<List<ResolvingRSocket>> availableRSocketSuppliers;
+    private final RSocketPoolParallel<S> rSocketPoolParallel;
 
-  private AtomicReference<Disposable> poolAvailable = new AtomicReference<>();
-  private AtomicInteger aperture = new AtomicInteger(DEFAULT_MIN_APERTURE);
+    private AtomicReference<Disposable> poolAvailable = new AtomicReference<>();
+    private AtomicInteger aperture = new AtomicInteger(DEFAULT_MIN_APERTURE);
 
-  public RSocketPoolElastic(
-      Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher) {
-    logger.info("Starting elastic RSocket pool.");
-    availableRSocketSuppliers = createHotRSocketSuppliersSource();
-    poolAvailable.set(availablePoolUpdater(rSocketsPublisher));
-    rSocketPoolParallel = rSocketPoolParallelConstructor(activeRSocketPool());
-  }
+    public RSocketPoolElastic(Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher) {
+        logger.info("Starting elastic RSocket pool.");
+        availableRSocketSuppliers = createHotRSocketSuppliersSource();
+        poolAvailable.set(availablePoolUpdater(rSocketsPublisher));
+        rSocketPoolParallel = rSocketPoolParallelConstructor(activeRSocketPool());
+    }
 
-  protected abstract S rSocketMapper(RSocket rSocket);
+    protected void setUpdatingWihParallelPool() {
+        rSocketPoolParallel.updatingPool().subscribe(i -> update());
+    }
 
-  protected abstract RSocketPoolParallel<S> rSocketPoolParallelConstructor(
-      Publisher<? extends Collection<? extends RSocket>> publisher);
+    protected abstract S rSocketMapper(RSocket rSocket);
 
-  private Flux<List<ResolvingRSocket>> createHotRSocketSuppliersSource() {
-    return Flux.<List<ResolvingRSocket>>create(sink -> rSocketSupplierListConsumer = sink::next)
-        .as(this::hotSource);
-  }
+    protected abstract RSocketPoolParallel<S> rSocketPoolParallelConstructor(
+            Publisher<? extends Collection<? extends RSocket>> publisher);
 
-  private Disposable availablePoolUpdater(
-      Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher) {
-    return Flux.from(rSocketsPublisher)
-        .distinctUntilChanged()
-        .map(c -> (List<Mono<? extends RSocket>>) new ArrayList<>(c))
-        .flatMap(list -> Flux.fromIterable(list).map(ResolvingRSocket::new).collectList())
-        .as(flux -> poolUpdater(flux, rSocketSupplierListConsumer));
-  }
+    private Flux<List<ResolvingRSocket>> createHotRSocketSuppliersSource() {
+        return Flux.<List<ResolvingRSocket>>create(sink -> rSocketSupplierListConsumer = sink::next)
+                .as(this::hotSource);
+    }
 
-  private Flux<List<S>> activeRSocketPool() {
-    return Flux.create(sink -> updateConsumer = sink::next)
-        .flatMap(
-            i ->
-                snapshot(availableRSocketSuppliers)
-                    .flatMapMany(Flux::fromIterable)
-                    .take(aperture.get())
-                    .collectList())
-        .distinctUntilChanged()
-        .flatMap(list -> Flux.fromIterable(list).map(this::rSocketMapper).collectList());
-  }
+    private Disposable availablePoolUpdater(
+            Publisher<? extends Collection<Mono<? extends RSocket>>> rSocketsPublisher
+    ) {
+        return Flux.from(rSocketsPublisher)
+                .distinctUntilChanged()
+                .map(c -> (List<Mono<? extends RSocket>>) new ArrayList<>(c))
+                .flatMap(list -> Flux.fromIterable(list).map(ResolvingRSocket::new).collectList())
+                .as(flux -> poolUpdater(flux, rSocketSupplierListConsumer));
+    }
 
-  @Override
-  public RSocket select() {
-    return rSocketPoolParallel.select();
-  }
+    private Flux<List<S>> activeRSocketPool() {
+        return Flux.create(sink -> updateConsumer = sink::next)
+                .flatMap(i -> snapshot(availableRSocketSuppliers)
+                        .flatMapMany(Flux::fromIterable)
+                        .take(aperture.get())
+                        .collectList())
+                .distinctUntilChanged()
+                .flatMap(list -> Flux.fromIterable(list).map(this::rSocketMapper).collectList());
+    }
 
-  public void update() {
-    updateConsumer.accept(0L);
-  }
+    @Override
+    public RSocket select() {
+        return rSocketPoolParallel.select();
+    }
 
-  @Override
-  public Mono<Void> onClose() {
-    logger.info("Cleaning RSocket pool.");
-    return rSocketPoolParallel
-        .onClose()
-        .then(
-            Mono.fromRunnable(
-                () -> {
-                  sourceControl.onComplete();
-                  poolAvailable.get().dispose();
+    protected void update() {
+        updateConsumer.accept(0L);
+    }
+
+    @Override
+    public Mono<Void> onClose() {
+        logger.info("Cleaning RSocket pool.");
+        return rSocketPoolParallel
+                .onClose()
+                .then(Mono.fromRunnable(() -> {
+                    sourceControl.onComplete();
+                    poolAvailable.get().dispose();
                 }));
-  }
+    }
 }

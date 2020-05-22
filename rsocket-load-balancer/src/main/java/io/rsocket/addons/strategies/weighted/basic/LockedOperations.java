@@ -1,4 +1,4 @@
-package io.rsocket.client.basic;
+package io.rsocket.addons.strategies.weighted.basic;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
