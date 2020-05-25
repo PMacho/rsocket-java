@@ -9,12 +9,6 @@ import io.rsocket.addons.strategies.parallel.weighted.statistics.WeightingStatis
 import io.rsocket.client.TimeoutException;
 import io.rsocket.client.TransportException;
 import io.rsocket.util.RSocketProxy;
-
-import java.nio.channels.ClosedChannelException;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.function.Consumer;
-
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -22,6 +16,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.nio.channels.ClosedChannelException;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Consumer;
 
 public class DefaultWeightedRSocket extends RSocketProxy implements WeightedRSocket {
 

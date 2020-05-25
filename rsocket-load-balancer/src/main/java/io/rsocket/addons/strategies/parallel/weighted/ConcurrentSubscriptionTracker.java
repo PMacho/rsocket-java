@@ -1,11 +1,12 @@
 package io.rsocket.addons.strategies.parallel.weighted;
 
-import io.rsocket.addons.strategies.util.AtomicTracker;
-import io.rsocket.addons.strategies.util.LockedOperations;
 import io.rsocket.addons.strategies.parallel.weighted.statistics.AtomicEwma;
 import io.rsocket.addons.strategies.parallel.weighted.statistics.WeightingStatisticsUtil;
+import io.rsocket.addons.strategies.util.AtomicTracker;
+import io.rsocket.addons.strategies.util.LockedOperations;
 import io.rsocket.stat.Median;
 import io.rsocket.util.Clock;
+import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -13,8 +14,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
-
-import reactor.core.publisher.Mono;
 
 public class ConcurrentSubscriptionTracker extends LockedOperations {
 
@@ -34,14 +33,14 @@ public class ConcurrentSubscriptionTracker extends LockedOperations {
 
     private final Consumer<Double> updateQuantiles;
 
-    ConcurrentSubscriptionTracker(final Consumer<Double> updateQuantiles, final long inactivityFactor) {
+    public ConcurrentSubscriptionTracker(final Consumer<Double> updateQuantiles, final long inactivityFactor) {
         super();
         this.updateQuantiles = updateQuantiles;
         this.inactivityFactor = inactivityFactor;
         this.interArrivalTime = new AtomicEwma(1, TimeUnit.MINUTES, DEFAULT_INITIAL_INTER_ARRIVAL_TIME);
     }
 
-    ConcurrentSubscriptionTracker(final Consumer<Double> updateQuantiles) {
+    public ConcurrentSubscriptionTracker(final Consumer<Double> updateQuantiles) {
         this(updateQuantiles, DEFAULT_INTER_ARRIVAL_FACTOR);
     }
 

@@ -56,8 +56,9 @@ public abstract class RSocketPoolParallel<S extends RSocket> implements RSocketP
     private Disposable maintainNext() {
         return activeRSockets
                 .map(list -> list.get(0))
-                .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)))
-                .subscribe(next::set);
+                .subscribe();
+//                .retryWhen(Retry.fixedDelay(Long.MAX_VALUE, Duration.ofMillis(10)))
+//                .subscribe(next::set);
     }
 
     private Disposable availablePoolUpdater(Publisher<? extends Collection<? extends RSocket>> rSocketsPublisher) {

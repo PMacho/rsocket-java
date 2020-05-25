@@ -22,10 +22,10 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
 
     Logger logger = LoggerFactory.getLogger(RSocketPoolElastic.class);
 
-    public static final int DEFAULT_MIN_APERTURE = 3;
+    private static final int DEFAULT_MIN_APERTURE = 3;
 
-    protected Consumer<List<ResolvingRSocket>> rSocketSupplierListConsumer;
-    protected Consumer<Long> updateConsumer;
+    private Consumer<List<ResolvingRSocket>> rSocketSupplierListConsumer;
+    private Consumer<Long> updateConsumer;
 
     private final Flux<List<ResolvingRSocket>> availableRSocketSuppliers;
     private final RSocketPoolParallel<S> rSocketPoolParallel;
