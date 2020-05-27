@@ -6,6 +6,7 @@ import io.rsocket.RSocket;
 import io.rsocket.frame.FrameType;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
@@ -70,59 +71,78 @@ abstract class BaseRSocketPool extends ResolvingOperator<Void>
     }
 
     for (; ; ) {
-      HashMap<RSocket, Integer> socketsCopy = new HashMap<>();
 
-      int j = 0;
-      for (RSocket rSocket : sockets) {
-        socketsCopy.put(rSocket, j++);
-      }
+      HashSet<RSocket> set = new HashSet<>(sockets);
+      HashSet<RSocket> newSockets = new HashSet<>(sockets.size());
 
-      // checking intersection of active RSocket with the newly received set
-      RSocket[] activeSockets = this.activeSockets;
-      RSocket[] nextActiveSockets = new RSocket[activeSockets.length + socketsCopy.size()];
-      int position = 0;
-      for (int i = 0; i < activeSockets.length; i++) {
-        RSocket rSocket = activeSockets[i];
-
-        Integer index = socketsCopy.remove(rSocket);
-        if (index == null) {
-          // if one of the active rSockets is not included, we remove it and put in the
-          // pending removal
-          // FIXME: create PooledRSocket to check whether it has to be disposed or put to
-          //  pending depends on number of ongoing calls, etc.
-          //          if (!rSocket.markPendingRemoval()) {
-          //            nextActiveSockets[position++] = rSocket;
-          //          }
-          if (!rSocket.isDisposed()) {
-            nextActiveSockets[position++] = rSocket;
-          }
+      for (RSocket rSocket : activeSockets) {
+        if (set.contains(rSocket)){
+          newSockets.add(rSocket);
         } else {
-          if (rSocket.isDisposed()) {
-            // put newly create RSocket instance
-            nextActiveSockets[position++] = sockets.get(index);
-          } else {
-            // keep old RSocket instance
-            nextActiveSockets[position++] = rSocket;
-          }
+          // todo:
+//          rSocket.setPending()
         }
       }
+      newSockets.addAll(sockets);
 
-      // going though brightly new rsocket
-      for (RSocket newRSocket : socketsCopy.keySet()) {
-        nextActiveSockets[position++] = newRSocket;
-      }
-
-      // shrank to actual length
-      RSocket[] shrankCopy;
-      if (position == 0) {
-        shrankCopy = EMPTY;
-      } else {
-        shrankCopy = Arrays.copyOf(nextActiveSockets, position);
-      }
-
-      if (ACTIVE_SOCKETS.compareAndSet(this, activeSockets, shrankCopy)) {
+      if (ACTIVE_SOCKETS.compareAndSet(this, activeSockets, (RSocket[]) newSockets.toArray())) {
         break;
       }
+
+//      HashMap<RSocket, Integer> socketsCopy = new HashMap<>();
+//
+//      int j = 0;
+//      for (RSocket rSocket : sockets) {
+//        socketsCopy.put(rSocket, j++);
+//      }
+//
+//      // checking intersection of active RSocket with the newly received set
+//      RSocket[] activeSockets = this.activeSockets;
+//      RSocket[] nextActiveSockets = new RSocket[activeSockets.length + socketsCopy.size()];
+//      int position = 0;
+//      for (int i = 0; i < activeSockets.length; i++) {
+//        RSocket rSocket = activeSockets[i];
+//
+//        Integer index = socketsCopy.remove(rSocket);
+//        if (index == null) {
+//          // if one of the active rSockets is not included, we remove it and put in the
+//          // pending removal
+//          // FIXME: create PooledRSocket to check whether it has to be disposed or put to
+//          //  pending depends on number of ongoing calls, etc.
+//          //          if (!rSocket.markPendingRemoval()) {
+//          //            nextActiveSockets[position++] = rSocket;
+//          //          }
+//          if (!rSocket.isDisposed()) {
+//            nextActiveSockets[position++] = rSocket;
+//          }
+//        } else {
+//          if (rSocket.isDisposed()) {
+//            // put newly create RSocket instance
+//            // fixme: this is the same instance as the disposed one
+//            nextActiveSockets[position++] = sockets.get(index);
+//          } else {
+//            // keep old RSocket instance
+//            nextActiveSockets[position++] = rSocket;
+//          }
+//        }
+//      }
+//
+//      // going though brightly new rsocket
+//      for (RSocket newRSocket : socketsCopy.keySet()) {
+//        nextActiveSockets[position++] = newRSocket;
+//      }
+//
+//      // shrank to actual length
+//      RSocket[] shrankCopy;
+//      if (position == 0) {
+//        shrankCopy = EMPTY;
+//      } else {
+//        shrankCopy = Arrays.copyOf(nextActiveSockets, position);
+//      }
+//
+//      if (ACTIVE_SOCKETS.compareAndSet(this, activeSockets, shrankCopy)) {
+//        break;
+//      }
     }
 
     if (isPending()) {
