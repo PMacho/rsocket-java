@@ -10,6 +10,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+
+import io.rsocket.util.RSocketProxy;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
@@ -76,14 +78,23 @@ abstract class BaseRSocketPool extends ResolvingOperator<Void>
       HashSet<RSocket> newSockets = new HashSet<>(sockets.size());
 
       for (RSocket rSocket : activeSockets) {
-        if (set.contains(rSocket)){
-          newSockets.add(rSocket);
-        } else {
-          // todo:
+        if (rSocket instanceof PooledRSocket) {
+          if (set.contains(((PooledRSocket)rSocket).parent())) {
+            newSockets.add(rSocket);
+          } else {
+            // todo:
 //          rSocket.setPending()
+          }
+        } else {
+          terminate(new UnsupportedClassVersionError("Only PooledRSockets should be part of available RSockets."));
         }
       }
-      newSockets.addAll(sockets);
+
+      for (RSocket rSocket : sockets){
+        if(!newSockets.contains(rSocket)){
+          newSockets.add(new DefaultPooledRSocket(rSocket){});
+        }
+      }
 
       if (ACTIVE_SOCKETS.compareAndSet(this, activeSockets, (RSocket[]) newSockets.toArray())) {
         break;
@@ -187,6 +198,8 @@ abstract class BaseRSocketPool extends ResolvingOperator<Void>
 
   @Nullable
   abstract RSocket doSelect();
+
+  abstract void update();
 
   static class DeferredResolutionRSocket implements RSocket {
 
@@ -377,5 +390,65 @@ abstract class BaseRSocketPool extends ResolvingOperator<Void>
      * @return {@code true} if marked as active. Otherwise, should be treated as it was disposed.
      */
     boolean markActive();
+
+    /**
+     * Allows access to the underlying RSocket.
+     *
+     * @return the parent RSocket
+     */
+    RSocket parent();
   }
+
+  class DefaultPooledRSocket extends RSocketProxy implements PooledRSocket {
+
+    public DefaultPooledRSocket(RSocket source) {
+      super(source);
+    }
+
+    @Override
+    public Mono<Void> fireAndForget(Payload payload) {
+      return source.fireAndForget(payload).doFinally(signalType -> update());
+    }
+
+    @Override
+    public Mono<Payload> requestResponse(Payload payload) {
+      return source.requestResponse(payload).doFinally(signalType -> update());
+    }
+
+    @Override
+    public Flux<Payload> requestStream(Payload payload) {
+      return source.requestStream(payload).doFinally(signalType -> update());
+    }
+
+    @Override
+    public Flux<Payload> requestChannel(Publisher<Payload> payloads) {
+      return source.requestChannel(payloads).doFinally(signalType -> update());
+    }
+
+    @Override
+    public Mono<Void> metadataPush(Payload payload) {
+      return source.metadataPush(payload).doFinally(signalType -> update());
+    }
+
+     @Override
+     public int activeRequests() {
+       return 0;
+     }
+
+     @Override
+     public boolean markForRemoval() {
+       return false;
+     }
+
+     @Override
+     public boolean markActive() {
+       return false;
+     }
+
+     @Override
+     public RSocket parent(){
+       return this.source;
+     }
+   }
+
 }
