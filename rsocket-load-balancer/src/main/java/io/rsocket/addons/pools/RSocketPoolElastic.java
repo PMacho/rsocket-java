@@ -1,6 +1,7 @@
 package io.rsocket.addons.pools;
 
 import io.rsocket.RSocket;
+import io.rsocket.addons.AsyncBaseRSocketPool;
 import io.rsocket.addons.RSocketPool;
 import io.rsocket.addons.ResolvingRSocket;
 
@@ -28,7 +29,7 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     protected Consumer<Long> updateConsumer;
 
     private final Flux<List<ResolvingRSocket>> availableRSocketSuppliers;
-    private final RSocketPoolParallel<S> rSocketPoolParallel;
+    private final AsyncBaseRSocketPool<S> asyncBaseRSocketPool;
 
     private AtomicReference<Disposable> poolAvailable = new AtomicReference<>();
     private AtomicInteger aperture = new AtomicInteger(DEFAULT_MIN_APERTURE);
@@ -37,16 +38,16 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
         logger.info("Starting elastic RSocket pool.");
         availableRSocketSuppliers = createHotRSocketSuppliersSource();
         poolAvailable.set(availablePoolUpdater(rSocketsPublisher));
-        rSocketPoolParallel = rSocketPoolParallelConstructor(activeRSocketPool());
+        asyncBaseRSocketPool = rSocketPoolParallelConstructor(activeRSocketPool());
     }
 
     protected void setUpdatingWihParallelPool() {
-        rSocketPoolParallel.updatingPool().subscribe(i -> update());
+        asyncBaseRSocketPool.updatingPool().subscribe(i -> update());
     }
 
     protected abstract S rSocketMapper(RSocket rSocket);
 
-    protected abstract RSocketPoolParallel<S> rSocketPoolParallelConstructor(
+    protected abstract AsyncBaseRSocketPool<S> rSocketPoolParallelConstructor(
             Publisher<? extends Collection<? extends RSocket>> publisher
     );
 
@@ -80,7 +81,7 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
 
     @Override
     public RSocket select() {
-        return rSocketPoolParallel.select();
+        return asyncBaseRSocketPool.select();
     }
 
     protected void update() {
@@ -90,7 +91,7 @@ public abstract class RSocketPoolElastic<S extends RSocket> implements RSocketPo
     @Override
     public Mono<Void> onClose() {
         logger.info("Cleaning RSocket pool.");
-        return rSocketPoolParallel
+        return asyncBaseRSocketPool
                 .onClose()
                 .then(Mono.fromRunnable(() -> {
                     sourceControl.onComplete();
